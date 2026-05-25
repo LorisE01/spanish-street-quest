@@ -16,5 +16,25 @@ const aiClient = {
     }
 
     return response.json();
+  },
+
+  async generateHint(questContext, lastUserAnswer, hintLevel) {
+    const response = await fetch("/api/generate-hint", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        questContext,
+        lastUserAnswer,
+        hintLevel
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("Hilfestellung konnte nicht geladen werden.");
+    }
+
+    return response.json();
   }
 };

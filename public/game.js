@@ -8,6 +8,7 @@
   const dialogLine = document.getElementById("vendor-line");
   const answerInput = document.getElementById("answer-input");
   const feedbackMessage = document.getElementById("feedback-message");
+  const hintContent = document.getElementById("hint-content");
   const submitButton = document.getElementById("submit-answer");
   const helpButton = document.getElementById("help-button");
   const closeDialogButton = document.getElementById("close-dialog");
@@ -36,6 +37,8 @@
     sidequestOpen: false,
     activeDialogTarget: null,
     activeSidequest: null,
+    lastUserAnswer: null,
+    hintLevel: 1,
     currentStep: "buy_lemonade",
     questStatus: "active",
     xpAwardKeys: new Set(),
@@ -147,15 +150,63 @@
     };
   }
 
+  function clearHint() {
+    hintContent.innerHTML = "";
+  }
+
+  function renderHint(hint) {
+    hintContent.innerHTML = "";
+
+    const hintBox = document.createElement("div");
+    hintBox.className = "hint-content__box";
+
+    const hintText = document.createElement("p");
+    hintText.className = "hint-content__text";
+    hintText.textContent = hint.hintGerman;
+    hintBox.appendChild(hintText);
+
+    if (hint.sentenceStarter) {
+      const starter = document.createElement("p");
+      starter.className = "hint-content__starter";
+      starter.textContent = `Satzanfang: ${hint.sentenceStarter}`;
+      hintBox.appendChild(starter);
+    }
+
+    if (Array.isArray(hint.vocabulary) && hint.vocabulary.length > 0) {
+      const vocabList = document.createElement("ul");
+      vocabList.className = "hint-content__vocab";
+
+      hint.vocabulary.forEach((entry) => {
+        const vocabItem = document.createElement("li");
+        vocabItem.textContent = `${entry.de} = ${entry.es}`;
+        vocabList.appendChild(vocabItem);
+      });
+
+      hintBox.appendChild(vocabList);
+    }
+
+    if (hint.exampleAnswer) {
+      const example = document.createElement("p");
+      example.className = "hint-content__example";
+      example.textContent = `Beispiel: ${hint.exampleAnswer}`;
+      hintBox.appendChild(example);
+    }
+
+    hintContent.appendChild(hintBox);
+  }
+
   function openDialog(target) {
     state.dialogOpen = true;
     state.activeDialogTarget = target;
+    state.hintLevel = 1;
+    state.lastUserAnswer = null;
     dialogTitle.textContent = target.step.npc;
     dialogLine.textContent = target.step.prompt;
     dialogOverlay.hidden = false;
     answerInput.value = "";
     feedbackMessage.textContent = "";
     feedbackMessage.className = "feedback";
+    clearHint();
     updateInteractionPrompt();
     answerInput.focus();
   }
@@ -164,6 +215,7 @@
     state.dialogOpen = false;
     state.activeDialogTarget = null;
     dialogOverlay.hidden = true;
+    clearHint();
     updateInteractionPrompt();
   }
 
@@ -219,6 +271,7 @@
 
   async function handleSubmitAnswer() {
     const userAnswer = answerInput.value;
+    state.lastUserAnswer = userAnswer;
 
     if (state.questStatus === "completed") {
       feedbackMessage.textContent = "Quest abgeschlossen.";
@@ -242,6 +295,7 @@
     submitButton.disabled = true;
     feedbackMessage.textContent = "Antwort wird bewertet...";
     feedbackMessage.className = "feedback";
+    clearHint();
 
     try {
       const evaluation = await aiClient.evaluateAnswer(userAnswer, buildQuestContext(step));
@@ -252,6 +306,45 @@
       console.error(error);
     } finally {
       submitButton.disabled = false;
+      answerInput.focus();
+    }
+  }
+
+  async function handleHelpRequest() {
+    if (state.questStatus === "completed") {
+      feedbackMessage.textContent = "Quest abgeschlossen.";
+      feedbackMessage.className = "feedback feedback--success";
+      clearHint();
+      return;
+    }
+
+    if (!state.activeDialogTarget) {
+      feedbackMessage.textContent = "Öffne zuerst den Dialog am aktuellen Questziel.";
+      feedbackMessage.className = "feedback feedback--error";
+      clearHint();
+      return;
+    }
+
+    const step = state.activeDialogTarget.step;
+    const lastUserAnswer = answerInput.value.trim() || state.lastUserAnswer;
+
+    helpButton.disabled = true;
+    feedbackMessage.textContent = "Hilfe wird vorbereitet...";
+    feedbackMessage.className = "feedback";
+    clearHint();
+
+    try {
+      const hint = await aiClient.generateHint(buildQuestContext(step), lastUserAnswer, state.hintLevel);
+      renderHint(hint);
+      feedbackMessage.textContent = "";
+      feedbackMessage.className = "feedback";
+      state.hintLevel += 1;
+    } catch (error) {
+      feedbackMessage.textContent = "Die Hilfestellung ist gerade nicht erreichbar. Bitte versuche es erneut.";
+      feedbackMessage.className = "feedback feedback--error";
+      console.error(error);
+    } finally {
+      helpButton.disabled = false;
       answerInput.focus();
     }
   }
@@ -372,12 +465,7 @@
   });
 
   submitButton.addEventListener("click", handleSubmitAnswer);
-  helpButton.addEventListener("click", () => {
-    const step = state.activeDialogTarget ? state.activeDialogTarget.step : getCurrentStep();
-    feedbackMessage.textContent = `Tipp: ${step.expectedExamples[0]}`;
-    feedbackMessage.className = "feedback";
-    answerInput.focus();
-  });
+  helpButton.addEventListener("click", handleHelpRequest);
   closeDialogButton.addEventListener("click", closeDialog);
   closeDialogXButton.addEventListener("click", closeDialog);
   sidequestButton.addEventListener("click", showRandomSidequest);

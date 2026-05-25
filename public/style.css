@@ -407,6 +407,35 @@ button:focus-visible {
   color: var(--danger);
 }
 
+.hint-content {
+  margin: 0.85rem 0;
+}
+
+.hint-content:empty {
+  display: none;
+}
+
+.hint-content__box {
+  border: 1px solid #d3dce8;
+  border-radius: 8px;
+  padding: 0.8rem;
+  background: #f6f8fb;
+}
+
+.hint-content__text {
+  margin: 0 0 0.6rem;
+}
+
+.hint-content__starter,
+.hint-content__example {
+  margin: 0.45rem 0;
+}
+
+.hint-content__vocab {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
 .dialog__actions {
   display: flex;
   flex-wrap: wrap;

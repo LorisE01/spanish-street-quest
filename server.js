@@ -69,6 +69,42 @@ const evaluationSchema = {
   }
 };
 
+const hintSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["hintLevel", "hintGerman", "sentenceStarter", "vocabulary", "exampleAnswer"],
+  properties: {
+    hintLevel: {
+      type: "number"
+    },
+    hintGerman: {
+      type: "string"
+    },
+    sentenceStarter: {
+      type: ["string", "null"]
+    },
+    vocabulary: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["de", "es"],
+        properties: {
+          de: {
+            type: "string"
+          },
+          es: {
+            type: "string"
+          }
+        }
+      }
+    },
+    exampleAnswer: {
+      type: ["string", "null"]
+    }
+  }
+};
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -102,7 +138,7 @@ function evaluateBuyLemonade(normalizedAnswer, questContext) {
       intentMatched: true,
       feedbackGerman: "Sehr gut! Du hast erfolgreich eine Limonade bestellt.",
       correctedSpanish: "Quiero una limonada, por favor.",
-      xpReward: Number(questContext.xpReward || 20),
+      xpReward: 20,
       nextAction: "complete_step",
       inventoryReward: "Limonade",
       mistakes: []
@@ -224,6 +260,54 @@ function getCompletedQuestEvaluation() {
   };
 }
 
+function getDummyHint(questContext, hintLevel = 1) {
+  const currentStep = questContext.currentStep || "buy_lemonade";
+
+  if (currentStep === "bring_to_carlos") {
+    return {
+      hintLevel,
+      hintGerman: "Carlos fragt, ob du seine Limonade hast. Sage, dass du sie hast.",
+      sentenceStarter: "Sí, tengo...",
+      vocabulary: [
+        {
+          de: "ja",
+          es: "sí"
+        },
+        {
+          de: "ich habe",
+          es: "tengo"
+        },
+        {
+          de: "deine Limonade",
+          es: "tu limonada"
+        }
+      ],
+      exampleAnswer: "Sí, tengo tu limonada."
+    };
+  }
+
+  return {
+    hintLevel,
+    hintGerman: "Du möchtest höflich sagen, dass du eine Limonade möchtest.",
+    sentenceStarter: "Quiero...",
+    vocabulary: [
+      {
+        de: "ich möchte",
+        es: "quiero"
+      },
+      {
+        de: "eine Limonade",
+        es: "una limonada"
+      },
+      {
+        de: "bitte",
+        es: "por favor"
+      }
+    ],
+    exampleAnswer: "Quiero una limonada, por favor."
+  };
+}
+
 function buildEvaluationPrompt(userAnswer, questContext) {
   return [
     "Bewerte eine kurze spanische Antwort in einem Anfänger-Sprachlernspiel.",
@@ -243,6 +327,24 @@ function buildEvaluationPrompt(userAnswer, questContext) {
     "",
     `Quest-Kontext: ${JSON.stringify(questContext)}`,
     `Nutzerantwort: ${userAnswer}`
+  ].join("\n");
+}
+
+function buildHintPrompt(questContext, lastUserAnswer, hintLevel) {
+  return [
+    "Erzeuge eine kurze Hilfestellung für ein Spanisch-Anfänger-Spiel.",
+    "Antworte ausschließlich mit JSON, das exakt dem Schema entspricht.",
+    "hintGerman soll kurz, freundlich und auf Deutsch sein.",
+    "Gib keine XP, keine Items und keine Queständerungen aus.",
+    "",
+    "Kontextregeln:",
+    "- currentStep buy_lemonade: Hilf dem Nutzer, höflich eine Limonade zu bestellen.",
+    "- currentStep bring_to_carlos: Hilf dem Nutzer, Carlos zu sagen, dass er seine Limonade hat oder sie ihm gibt.",
+    "- Je höher hintLevel ist, desto konkreter darf die Hilfe werden.",
+    "",
+    `Quest-Kontext: ${JSON.stringify(questContext)}`,
+    `Letzte Nutzerantwort: ${lastUserAnswer || ""}`,
+    `Hint-Level: ${hintLevel}`
   ].join("\n");
 }
 
@@ -317,6 +419,30 @@ function normalizeEvaluation(evaluation, questContext) {
   };
 }
 
+function normalizeHint(hint, questContext, hintLevel) {
+  const fallbackHint = getDummyHint(questContext, hintLevel);
+  const vocabulary = Array.isArray(hint.vocabulary)
+    ? hint.vocabulary.slice(0, 5).map((entry) => ({
+        de: String(entry.de || ""),
+        es: String(entry.es || "")
+      }))
+    : fallbackHint.vocabulary;
+
+  return {
+    hintLevel: Number(hint.hintLevel || hintLevel),
+    hintGerman: truncateSentences(hint.hintGerman, 2) || fallbackHint.hintGerman,
+    sentenceStarter:
+      typeof hint.sentenceStarter === "string" || hint.sentenceStarter === null
+        ? hint.sentenceStarter
+        : fallbackHint.sentenceStarter,
+    vocabulary,
+    exampleAnswer:
+      typeof hint.exampleAnswer === "string" || hint.exampleAnswer === null
+        ? hint.exampleAnswer
+        : fallbackHint.exampleAnswer
+  };
+}
+
 async function evaluateWithOpenAI(userAnswer, questContext) {
   if (!process.env.OPENAI_API_KEY) {
     return null;
@@ -362,6 +488,51 @@ async function evaluateWithOpenAI(userAnswer, questContext) {
   }
 }
 
+async function generateHintWithOpenAI(questContext, lastUserAnswer, hintLevel) {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(OPENAI_API_URL, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        input: buildHintPrompt(questContext, lastUserAnswer, hintLevel),
+        max_output_tokens: 250,
+        text: {
+          format: {
+            type: "json_schema",
+            name: "spanish_street_quest_hint",
+            strict: true,
+            schema: hintSchema
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const responseData = await response.json();
+    const outputText = extractOutputText(responseData);
+    const parsedHint = JSON.parse(outputText);
+
+    return normalizeHint(parsedHint, questContext, hintLevel);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 app.post("/api/evaluate-answer", async (req, res) => {
   const { userAnswer = "", questContext = {} } = req.body || {};
   const safeQuestContext = getSafeQuestContext(questContext);
@@ -391,6 +562,33 @@ app.post("/api/evaluate-answer", async (req, res) => {
   }
 
   return res.json(getDummyEvaluation(normalizedAnswer, normalizedQuestContext));
+});
+
+app.post("/api/generate-hint", async (req, res) => {
+  const { questContext = {}, lastUserAnswer = null, hintLevel = 1 } = req.body || {};
+  const safeQuestContext = getSafeQuestContext(questContext);
+  const currentStep = safeQuestContext.currentStep || "buy_lemonade";
+  const normalizedQuestContext = {
+    ...safeQuestContext,
+    currentStep
+  };
+  const safeHintLevel = Math.max(1, Math.min(Number(hintLevel) || 1, 3));
+
+  if (safeQuestContext.questStatus === "completed" || currentStep === "completed") {
+    return res.json(getDummyHint(normalizedQuestContext, safeHintLevel));
+  }
+
+  try {
+    const aiHint = await generateHintWithOpenAI(normalizedQuestContext, lastUserAnswer, safeHintLevel);
+
+    if (aiHint) {
+      return res.json(aiHint);
+    }
+  } catch (error) {
+    console.error("OpenAI hint generation failed, using dummy fallback:", error.message);
+  }
+
+  return res.json(getDummyHint(normalizedQuestContext, safeHintLevel));
 });
 
 app.listen(PORT, () => {
