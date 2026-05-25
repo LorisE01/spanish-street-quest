@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spanish Street Quest</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app-shell">
+      <header id="hud" class="hud">
+        <div class="hud__stat">
+          <span class="hud__label">Level</span>
+          <span id="level-value">1</span>
+        </div>
+        <div class="hud__stat">
+          <span class="hud__label">XP</span>
+          <span id="xp-value">0/100</span>
+        </div>
+        <div class="hud__quest">
+          <span class="hud__label">Aktuelle Quest</span>
+          <span id="quest-title">Kaufe eine Limonade für Carlos</span>
+        </div>
+      </header>
+
+      <main id="game-area" aria-label="Spanish Street Quest Spielszene">
+        <section id="world" class="world">
+          <div class="skyline" aria-hidden="true">
+            <div class="building building--tall"></div>
+            <div class="building building--wide"></div>
+            <div class="building building--glass"></div>
+            <div class="building building--small"></div>
+          </div>
+
+          <div id="drink-stand" class="location location--stand" aria-label="Getränkestand">
+            <div class="stand-roof"></div>
+            <div class="stand-body">
+              <span class="stand-sign">Bebidas</span>
+            </div>
+            <div id="vendor" class="npc npc--vendor" aria-label="Verkäufer"></div>
+          </div>
+
+          <div id="park" class="location location--park" aria-label="Park mit Carlos">
+            <div class="tree"></div>
+            <div id="carlos" class="npc npc--carlos" aria-label="Carlos"></div>
+            <span class="park-label">Carlos</span>
+          </div>
+
+          <div id="player" class="player" aria-label="Spielerfigur"></div>
+          <div class="road"></div>
+        </section>
+
+        <div id="interaction-prompt" class="interaction-prompt" hidden>
+          Drücke E zum Interagieren
+        </div>
+      </main>
+
+      <footer id="inventory" class="inventory">
+        <span class="inventory__label">Inventar</span>
+        <ul id="inventory-list" class="inventory__list">
+          <li class="inventory__empty">Leer</li>
+        </ul>
+        <button id="sidequest-button" class="sidequest-button" type="button">Mini-Challenge</button>
+      </footer>
+    </div>
+
+    <div id="dialog-overlay" class="dialog-overlay" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <div class="dialog__header">
+          <h1 id="dialog-title">Getränkestand</h1>
+          <button id="close-dialog-x" class="icon-button" type="button" aria-label="Dialog schließen">x</button>
+        </div>
+        <p id="vendor-line" class="dialog__line">Hola, ¿qué quieres beber?</p>
+        <label class="dialog__label" for="answer-input">Deine Antwort</label>
+        <input id="answer-input" type="text" placeholder="Antworte auf Spanisch..." autocomplete="off" />
+        <p id="feedback-message" class="feedback" aria-live="polite"></p>
+        <div class="dialog__actions">
+          <button id="submit-answer" type="button">Antwort senden</button>
+          <button id="help-button" type="button">Hilfe</button>
+          <button id="close-dialog" type="button">Schließen</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="sidequest-overlay" class="sidequest-overlay" hidden>
+      <section class="sidequest" role="dialog" aria-modal="true" aria-labelledby="sidequest-title">
+        <div class="sidequest__header">
+          <h1 id="sidequest-title">Mini-Challenge</h1>
+          <button id="close-sidequest-x" class="icon-button" type="button" aria-label="Mini-Challenge schließen">x</button>
+        </div>
+        <p id="sidequest-question" class="sidequest__question"></p>
+        <div id="sidequest-options" class="sidequest__options"></div>
+        <p id="sidequest-feedback" class="feedback" aria-live="polite"></p>
+        <button id="close-sidequest" type="button">Schließen</button>
+      </section>
+    </div>
+
+    <script src="quests.js"></script>
+    <script src="sidequests.js"></script>
+    <script src="aiClient.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>
