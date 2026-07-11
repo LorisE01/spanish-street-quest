@@ -7,7 +7,37 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div id="app-shell">
+    <section id="main-menu" class="main-menu">
+      <div class="main-menu__content">
+        <h1>Spanish Street Quest</h1>
+        <p>Lerne Spanisch in dynamischen KI-Szenarien</p>
+        <div class="main-menu__actions">
+          <button id="play-button" type="button">Spielen</button>
+          <button class="secondary-button" type="button">Anleitung</button>
+          <button class="secondary-button" type="button">Einstellungen</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="vocabulary-screen" class="vocabulary-screen" hidden>
+      <div class="vocabulary-screen__content">
+        <h1 id="vocabulary-title">Level</h1>
+        <p id="vocabulary-description"></p>
+        <div id="vocabulary-list" class="vocabulary-list"></div>
+        <button id="start-level-button" type="button">Level starten</button>
+      </div>
+    </section>
+
+    <section id="level-complete-screen" class="vocabulary-screen" hidden>
+      <div class="vocabulary-screen__content">
+        <h1>Level abgeschlossen</h1>
+        <p id="level-summary"></p>
+        <div id="learned-vocabulary-list" class="vocabulary-list"></div>
+        <button id="next-level-button" type="button">Nächstes Level</button>
+      </div>
+    </section>
+
+    <div id="app-shell" hidden>
       <header id="hud" class="hud">
         <div class="hud__stat">
           <span class="hud__label">Level</span>
@@ -18,34 +48,19 @@
           <span id="xp-value">0/100</span>
         </div>
         <div class="hud__quest">
+          <span class="hud__label">Szene</span>
+          <span id="environment-title">Noch nicht geladen</span>
+        </div>
+        <div class="hud__quest">
           <span class="hud__label">Aktuelle Quest</span>
-          <span id="quest-title">Kaufe eine Limonade für Carlos</span>
+          <span id="quest-title">Noch nicht geladen</span>
         </div>
       </header>
 
       <main id="game-area" aria-label="Spanish Street Quest Spielszene">
         <section id="world" class="world">
-          <div class="skyline" aria-hidden="true">
-            <div class="building building--tall"></div>
-            <div class="building building--wide"></div>
-            <div class="building building--glass"></div>
-            <div class="building building--small"></div>
-          </div>
-
-          <div id="drink-stand" class="location location--stand" aria-label="Getränkestand">
-            <div class="stand-roof"></div>
-            <div class="stand-body">
-              <span class="stand-sign">Bebidas</span>
-            </div>
-            <div id="vendor" class="npc npc--vendor" aria-label="Verkäufer"></div>
-          </div>
-
-          <div id="park" class="location location--park" aria-label="Park mit Carlos">
-            <div class="tree"></div>
-            <div id="carlos" class="npc npc--carlos" aria-label="Carlos"></div>
-            <span class="park-label">Carlos</span>
-          </div>
-
+          <div class="scrolling-background" aria-hidden="true"></div>
+          <div id="scene-layer" class="scene-layer"></div>
           <div id="player" class="player" aria-label="Spielerfigur"></div>
           <div class="road"></div>
         </section>
@@ -60,6 +75,8 @@
         <ul id="inventory-list" class="inventory__list">
           <li class="inventory__empty">Leer</li>
         </ul>
+        <button id="new-environment-button" class="new-quest-button" type="button" hidden>Nächstes Level</button>
+        <button id="new-quest-button" class="new-quest-button" type="button" hidden>Neue KI-Quest</button>
         <button id="sidequest-button" class="sidequest-button" type="button">Mini-Challenge</button>
       </footer>
     </div>
@@ -67,10 +84,18 @@
     <div id="dialog-overlay" class="dialog-overlay" hidden>
       <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <div class="dialog__header">
-          <h1 id="dialog-title">Getränkestand</h1>
+          <h1 id="dialog-title">Dialog</h1>
           <button id="close-dialog-x" class="icon-button" type="button" aria-label="Dialog schließen">x</button>
         </div>
-        <p id="vendor-line" class="dialog__line">Hola, ¿qué quieres beber?</p>
+        <figure id="dialog-portrait-card" class="dialog__portrait-card" hidden>
+          <img id="dialog-portrait" class="dialog__portrait" src="" alt="" />
+          <figcaption id="dialog-portrait-caption" class="dialog__portrait-caption"></figcaption>
+        </figure>
+        <p id="vendor-line" class="dialog__line"></p>
+        <div id="dialog-item-section" class="dialog__item-section" hidden>
+          <h2 class="dialog__item-title">Gegenstand wählen</h2>
+          <div id="dialog-item-options" class="dialog__item-options" aria-live="polite"></div>
+        </div>
         <label class="dialog__label" for="answer-input">Deine Antwort</label>
         <input id="answer-input" type="text" placeholder="Antworte auf Spanisch..." autocomplete="off" />
         <p id="feedback-message" class="feedback" aria-live="polite"></p>
