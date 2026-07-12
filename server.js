@@ -4,6 +4,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const configuredBuildingAssets = require("./public/buildingAssets");
+const configuredCharacterAssets = require("./public/characterAssets");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,13 +29,38 @@ const availableBuildingAssets = Object.fromEntries(
 );
 const availableBuildingLocationIds = Object.freeze(Object.keys(availableBuildingAssets));
 const availableBuildingLocationIdSet = new Set(availableBuildingLocationIds);
+const availableCharacterAssets = Object.fromEntries(
+  Object.entries(configuredCharacterAssets).filter(([npcId, asset]) => {
+    const portraitPath = String(asset.portrait || "").replace(/^[/\\]+/, "");
+    const spritePath = String(asset.sprite || "").replace(/^[/\\]+/, "");
+    const pairExists =
+      fs.existsSync(path.join(__dirname, "public", portraitPath)) &&
+      fs.existsSync(path.join(__dirname, "public", spritePath));
+
+    if (!pairExists) {
+      console.warn(`Character asset ${npcId} was ignored because its portrait or idle sprite is missing.`);
+    }
+
+    return pairExists;
+  })
+);
+const availableNpcIds = Object.freeze(Object.keys(availableCharacterAssets));
+const availableNpcIdSet = new Set(availableNpcIds);
 
 if (availableBuildingLocationIds.length === 0) {
   throw new Error("No usable PNG building assets were found in public/assets/buildings.");
 }
 
+if (availableNpcIds.length === 0) {
+  throw new Error("No complete NPC portrait and idle pairs were found in public/assets/characters.");
+}
+
 function onlyAvailableBuildingLocations(locationIds) {
   return locationIds.filter((locationId) => availableBuildingLocationIdSet.has(locationId));
+}
+
+function onlyAvailableNpcs(npcIds) {
+  return npcIds.filter((npcId) => availableNpcIdSet.has(npcId));
 }
 
 const evaluationSchema = {
@@ -133,7 +159,7 @@ const hintSchema = {
       }
     },
     exampleAnswer: {
-      type: ["string", "null"]
+      type: "null"
     }
   }
 };
@@ -152,18 +178,7 @@ const worldModel = {
   ],
   locationTypes: ["building", "stand", "park", "station", "shop", "service"],
   locations: availableBuildingLocationIds,
-  npcs: [
-    "vendor",
-    "cashier",
-    "waiter",
-    "barista",
-    "receptionist",
-    "postal_worker",
-    "bus_driver",
-    "shop_assistant",
-    "carlos",
-    "passerby"
-  ],
+  npcs: availableNpcIds,
   learningGoals: [
     "introduce_yourself",
     "order_food",
@@ -201,7 +216,7 @@ const worldModel = {
       id: "street",
       scenarioId: "street",
       allowedLocations: onlyAvailableBuildingLocations(["park", "bus_stop", "drink_stand"]),
-      allowedNpcs: ["passerby", "carlos", "bus_driver"],
+      allowedNpcs: onlyAvailableNpcs(["passerby", "carlos", "bus_driver", "tourist"]),
       allowedLearningGoals: ["introduce_yourself", "ask_directions", "ask_for_help", "greeting", "give_item"],
       allowedItems: ["agua", "billete", "tarjeta"]
     },
@@ -209,7 +224,7 @@ const worldModel = {
       id: "supermarket",
       scenarioId: "supermarket",
       allowedLocations: onlyAvailableBuildingLocations(["supermarket", "park", "drink_stand"]),
-      allowedNpcs: ["cashier", "shop_assistant", "passerby", "carlos"],
+      allowedNpcs: onlyAvailableNpcs(["cashier", "shop_assistant", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["buy_food", "ask_price", "ask_for_help", "greeting", "give_item"],
       allowedItems: ["pan", "manzana", "dinero", "tarjeta", "ensalada", "queso", "bocadillo", "platano"]
     },
@@ -217,7 +232,7 @@ const worldModel = {
       id: "cafe",
       scenarioId: "cafe",
       allowedLocations: onlyAvailableBuildingLocations(["cafe", "park", "supermarket"]),
-      allowedNpcs: ["barista", "passerby", "carlos"],
+      allowedNpcs: onlyAvailableNpcs(["barista", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["order_food", "order_drink", "ask_price", "greeting", "give_item"],
       allowedItems: ["cafe", "agua", "bocadillo", "dinero", "tarjeta"]
     },
@@ -225,7 +240,7 @@ const worldModel = {
       id: "restaurant",
       scenarioId: "restaurant",
       allowedLocations: onlyAvailableBuildingLocations(["restaurant", "park", "cafe"]),
-      allowedNpcs: ["waiter", "passerby", "carlos"],
+      allowedNpcs: onlyAvailableNpcs(["waiter", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["order_food", "order_drink", "ask_price", "greeting", "give_item"],
       allowedItems: ["ensalada", "queso", "bocadillo", "agua", "cafe", "dinero", "tarjeta"]
     },
@@ -233,7 +248,7 @@ const worldModel = {
       id: "park",
       scenarioId: "park",
       allowedLocations: onlyAvailableBuildingLocations(["park", "drink_stand", "bus_stop"]),
-      allowedNpcs: ["carlos", "passerby", "vendor"],
+      allowedNpcs: onlyAvailableNpcs(["carlos", "passerby", "vendor", "park_guard", "tourist"]),
       allowedLearningGoals: ["introduce_yourself", "greeting", "ask_directions", "ask_for_help", "give_item"],
       allowedItems: ["agua", "limonada", "manzana", "bocadillo"]
     },
@@ -241,7 +256,7 @@ const worldModel = {
       id: "bus_stop",
       scenarioId: "bus_stop",
       allowedLocations: onlyAvailableBuildingLocations(["bus_stop", "hotel", "park"]),
-      allowedNpcs: ["bus_driver", "passerby", "receptionist"],
+      allowedNpcs: onlyAvailableNpcs(["bus_driver", "passerby", "receptionist", "tourist"]),
       allowedLearningGoals: ["ask_directions", "ask_for_help", "greeting", "give_item"],
       allowedItems: ["billete", "tarjeta", "llave"]
     },
@@ -249,7 +264,7 @@ const worldModel = {
       id: "hotel",
       scenarioId: "hotel",
       allowedLocations: onlyAvailableBuildingLocations(["hotel", "bus_stop", "cafe"]),
-      allowedNpcs: ["receptionist", "passerby", "bus_driver"],
+      allowedNpcs: onlyAvailableNpcs(["receptionist", "passerby", "bus_driver", "tourist"]),
       allowedLearningGoals: ["introduce_yourself", "ask_directions", "check_in_hotel", "ask_for_help", "greeting"],
       allowedItems: ["llave", "tarjeta", "billete"]
     },
@@ -257,7 +272,7 @@ const worldModel = {
       id: "clothing_store",
       scenarioId: "clothing_store",
       allowedLocations: onlyAvailableBuildingLocations(["clothing_store", "park", "cafe"]),
-      allowedNpcs: ["shop_assistant", "passerby", "carlos"],
+      allowedNpcs: onlyAvailableNpcs(["shop_assistant", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["ask_price", "ask_for_help", "greeting", "give_item"],
       allowedItems: ["camiseta", "zapatos", "chaqueta", "dinero", "tarjeta"]
     },
@@ -265,7 +280,7 @@ const worldModel = {
       id: "post_office",
       scenarioId: "post_office",
       allowedLocations: onlyAvailableBuildingLocations(["post_office", "park", "bus_stop"]),
-      allowedNpcs: ["postal_worker", "passerby", "carlos"],
+      allowedNpcs: onlyAvailableNpcs(["postal_worker", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["ask_price", "ask_for_help", "greeting", "give_item"],
       allowedItems: ["sello", "postal", "dinero", "tarjeta"]
     }
@@ -549,6 +564,8 @@ const levelTaskSchema = {
   required: [
     "taskId",
     "order",
+    "taskType",
+    "wordOrder",
     "titleGerman",
     "instructionGerman",
     "locationId",
@@ -567,6 +584,29 @@ const levelTaskSchema = {
   properties: {
     taskId: { type: "string" },
     order: { type: "number" },
+    taskType: {
+      type: "string",
+      enum: ["free_text", "word_order"]
+    },
+    wordOrder: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["tiles", "correctOrder"],
+      properties: {
+        tiles: {
+          type: "array",
+          minItems: 2,
+          maxItems: 10,
+          items: { type: "string" }
+        },
+        correctOrder: {
+          type: "array",
+          minItems: 2,
+          maxItems: 10,
+          items: { type: "string" }
+        }
+      }
+    },
     titleGerman: { type: "string" },
     instructionGerman: { type: "string" },
     locationId: { type: "string" },
@@ -1126,6 +1166,65 @@ function evaluateGeneratedLevelTask(normalizedAnswer, questContext) {
   };
 }
 
+function evaluateWordOrderTask(normalizedAnswer, questContext) {
+  const expectedExamples = Array.isArray(questContext.expectedExamples) ? questContext.expectedExamples : [];
+  const normalizedExamples = expectedExamples.map(normalizeAnswer).filter(Boolean);
+  const correctedSpanish = String(expectedExamples[0] || "");
+
+  if (normalizedExamples.includes(normalizedAnswer)) {
+    return {
+      result: "correct",
+      isCorrect: true,
+      intentMatched: true,
+      feedbackGerman: "Sehr gut! Die Wörter stehen in der richtigen Reihenfolge.",
+      correctedSpanish,
+      xpReward: 0,
+      nextAction: "complete_quest",
+      inventoryReward: null,
+      mistakes: []
+    };
+  }
+
+  const answerTokens = normalizedAnswer.split(/\s+/).filter(Boolean);
+  const expectedTokens = normalizeAnswer(expectedExamples[0]).split(/\s+/).filter(Boolean);
+
+  if (haveSameWordTileMultiset(answerTokens, expectedTokens)) {
+    return {
+      result: "partial",
+      isCorrect: false,
+      intentMatched: true,
+      feedbackGerman: "Fast richtig! Alle Wörter sind da, aber die Reihenfolge stimmt noch nicht.",
+      correctedSpanish,
+      xpReward: 0,
+      nextAction: "retry",
+      inventoryReward: null,
+      mistakes: [
+        {
+          type: "word_order",
+          explanationGerman: "Ordne die Wörter zu einem natürlichen spanischen Satz."
+        }
+      ]
+    };
+  }
+
+  return {
+    result: "wrong",
+    isCorrect: false,
+    intentMatched: false,
+    feedbackGerman: "Nutze alle Wortkärtchen und ordne sie zu einem vollständigen Satz.",
+    correctedSpanish,
+    xpReward: 0,
+    nextAction: "show_hint",
+    inventoryReward: null,
+    mistakes: [
+      {
+        type: "word_order",
+        explanationGerman: "Der gebildete Satz enthält noch nicht alle benötigten Wörter."
+      }
+    ]
+  };
+}
+
 function getDummyEvaluation(normalizedAnswer, questContext) {
   if (questContext.currentStep === "generated_level_task") {
     return evaluateGeneratedLevelTask(normalizedAnswer, questContext);
@@ -1599,7 +1698,7 @@ function normalizeEnvironment(environment) {
 
   const npcs = Array.isArray(environment.npcs)
     ? environment.npcs.slice(0, 4).map((npc, index) => ({
-        id: worldModel.npcs.includes(npc.id) ? npc.id : "passerby",
+        id: String(npc.id || ""),
         nameGerman: String(npc.nameGerman || npc.id || "Person"),
         role: npc.role === "quest_npc" ? "quest_npc" : "ambient_npc",
         x: clampNumber(npc.x, 50, 940, 160 + index * 180),
@@ -1614,6 +1713,10 @@ function normalizeEnvironment(environment) {
 
   if (npcs.length < 1 || !npcs.some((npc) => npc.role === "quest_npc")) {
     throw new Error("Generated environment needs a quest NPC.");
+  }
+
+  if (npcs.some((npc) => !availableNpcIdSet.has(npc.id))) {
+    throw new Error("Generated environment references an NPC without portrait and idle assets.");
   }
 
   if (new Set(npcs.map((npc) => npc.id)).size !== npcs.length) {
@@ -1722,7 +1825,85 @@ function validateLevelTaskFlow(tasks, items) {
   });
 }
 
-function normalizeLevel(level, scenario = null) {
+function haveSameWordTileMultiset(firstTiles, secondTiles) {
+  if (firstTiles.length !== secondTiles.length) {
+    return false;
+  }
+
+  const counts = new Map();
+
+  firstTiles.forEach((tile) => {
+    const key = normalizeAnswer(tile);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  for (const tile of secondTiles) {
+    const key = normalizeAnswer(tile);
+    const remaining = counts.get(key) || 0;
+
+    if (remaining === 0) {
+      return false;
+    }
+
+    counts.set(key, remaining - 1);
+  }
+
+  return [...counts.values()].every((count) => count === 0);
+}
+
+function shuffleWordTiles(tiles) {
+  const shuffledTiles = [...tiles];
+
+  for (let index = shuffledTiles.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffledTiles[index], shuffledTiles[randomIndex]] = [shuffledTiles[randomIndex], shuffledTiles[index]];
+  }
+
+  if (shuffledTiles.length > 1 && shuffledTiles.every((tile, index) => tile === tiles[index])) {
+    shuffledTiles.push(shuffledTiles.shift());
+  }
+
+  return shuffledTiles;
+}
+
+function normalizeTaskWordOrder(wordOrder, taskType, expectedExamples, taskId) {
+  if (taskType === "free_text") {
+    return null;
+  }
+
+  if (!wordOrder || typeof wordOrder !== "object") {
+    throw new Error(`Generated word-order task ${taskId} has no wordOrder data.`);
+  }
+
+  const tiles = Array.isArray(wordOrder.tiles)
+    ? wordOrder.tiles.map((tile) => String(tile || "").trim()).filter(Boolean)
+    : [];
+  const correctOrder = Array.isArray(wordOrder.correctOrder)
+    ? wordOrder.correctOrder.map((tile) => String(tile || "").trim()).filter(Boolean)
+    : [];
+
+  if (tiles.length < 2 || tiles.length > 10 || correctOrder.length < 2 || correctOrder.length > 10) {
+    throw new Error(`Generated word-order task ${taskId} has an invalid number of tiles.`);
+  }
+
+  if (!haveSameWordTileMultiset(tiles, correctOrder)) {
+    throw new Error(`Generated word-order task ${taskId} uses different tiles and solution words.`);
+  }
+
+  const expectedSentence = normalizeAnswer(expectedExamples[0]);
+  const correctSentence = normalizeAnswer(correctOrder.join(" "));
+
+  if (!expectedSentence || expectedSentence !== correctSentence) {
+    throw new Error(`Generated word-order task ${taskId} does not match its expected example.`);
+  }
+
+  return {
+    tiles: shuffleWordTiles(tiles),
+    correctOrder
+  };
+}
+
+function normalizeLevel(level, scenario = null, taskTypePlan = []) {
   if (!level || typeof level !== "object") {
     throw new Error("Generated level is not an object.");
   }
@@ -1787,7 +1968,7 @@ function normalizeLevel(level, scenario = null) {
 
   const npcs = Array.isArray(level.npcs)
     ? level.npcs.slice(0, 4).map((npc, index) => ({
-        id: worldModel.npcs.includes(npc.id) ? npc.id : "passerby",
+        id: String(npc.id || ""),
         nameGerman: String(npc.nameGerman || npc.id || "Person"),
         role: npc.role === "quest_npc" ? "quest_npc" : "ambient_npc",
         x: clampNumber(npc.x, 50, 940, 160 + index * 180),
@@ -1802,6 +1983,10 @@ function normalizeLevel(level, scenario = null) {
 
   if (npcs.length < 1 || new Set(npcs.map((npc) => npc.id)).size !== npcs.length) {
     throw new Error("Generated level contains invalid NPCs.");
+  }
+
+  if (npcs.some((npc) => !availableNpcIdSet.has(npc.id))) {
+    throw new Error("Generated level references an NPC without portrait and idle assets.");
   }
 
   if (scenario && scenario.allowedNpcs.length > 1 && npcs.length < 2) {
@@ -1883,9 +2068,23 @@ function normalizeLevel(level, scenario = null) {
             }
           }
 
+          const expectedExamples = Array.isArray(task.expectedExamples)
+            ? task.expectedExamples.slice(0, 3).map((example) => String(example))
+            : ["Hola."];
+          const plannedTaskType = taskTypePlan[index];
+          const taskType = plannedTaskType || (task.taskType === "word_order" ? "word_order" : "free_text");
+
+          if (plannedTaskType && task.taskType !== plannedTaskType) {
+            throw new Error(`Generated level task ${task.taskId} does not follow the requested task type plan.`);
+          }
+
+          const wordOrder = normalizeTaskWordOrder(task.wordOrder, taskType, expectedExamples, task.taskId);
+
           return {
             taskId: String(task.taskId || `task_${index + 1}`),
             order: index + 1,
+            taskType,
+            wordOrder,
             titleGerman: String(task.titleGerman || "Aufgabe"),
             instructionGerman: String(task.instructionGerman || "Antworte mit einem kurzen spanischen Satz."),
             locationId: task.locationId,
@@ -1893,9 +2092,7 @@ function normalizeLevel(level, scenario = null) {
             npcName: String(task.npcName || task.npcId),
             npcSpanish: String(task.npcSpanish || "Hola."),
             expectedIntent: String(task.expectedIntent || ""),
-            expectedExamples: Array.isArray(task.expectedExamples)
-              ? task.expectedExamples.slice(0, 3).map((example) => String(example))
-              : ["Hola."],
+            expectedExamples,
             requiredVocabulary: Array.isArray(task.requiredVocabulary)
               ? task.requiredVocabulary.slice(0, 5).map((word) => String(word))
               : [],
@@ -2066,7 +2263,9 @@ function getSafeLevelGenerationContext(requestBody = {}) {
 
 function selectScenario(excludedScenarioIds = []) {
   const excludedIds = new Set(excludedScenarioIds);
-  const viableScenarios = worldModel.scenarios.filter((scenario) => scenario.allowedLocations.length >= 2);
+  const viableScenarios = worldModel.scenarios.filter(
+    (scenario) => scenario.allowedLocations.length >= 2 && scenario.allowedNpcs.length >= 2
+  );
   const availableScenarios = viableScenarios.filter(
     (scenario) => !excludedIds.has(scenario.scenarioId)
   );
@@ -2121,6 +2320,17 @@ function getStoryPattern(learningFocus) {
   return storyPatterns[learningFocus] || "Verbinde alle Aufgaben zu einer kurzen, nachvollziehbaren Alltagssituation.";
 }
 
+function createTaskTypePlan() {
+  const firstTwoTaskTypes = Math.random() < 0.5
+    ? ["free_text", "word_order"]
+    : ["word_order", "free_text"];
+
+  return [
+    ...firstTwoTaskTypes,
+    Math.random() < 0.5 ? "free_text" : "word_order"
+  ];
+}
+
 function getDummyHint(questContext, hintLevel = 1) {
   const currentStep = questContext.currentStep || "buy_lemonade";
 
@@ -2130,14 +2340,16 @@ function getDummyHint(questContext, hintLevel = 1) {
     const sentenceStarter = expectedExample
       ? `${expectedExample.split(" ").slice(0, starterWordCount).join(" ")}...`
       : null;
-    const canShowExample = Number(hintLevel) >= 3;
 
     return {
       hintLevel,
-      hintGerman: "Nutze die Vokabeln aus der Vorschau und antworte mit einem kurzen Satz.",
+      hintGerman:
+        Number(hintLevel) >= 3
+          ? "Achte auf die Satzstellung und verbessere gezielt den Teil, bei dem du noch unsicher bist."
+          : "Nutze die Vokabeln aus der Vorschau und bilde selbst einen kurzen Satz.",
       sentenceStarter: sentenceStarter || null,
       vocabulary: Array.isArray(questContext.vocabulary) ? questContext.vocabulary.slice(0, 5) : [],
-      exampleAnswer: canShowExample ? expectedExample : null
+      exampleAnswer: null
     };
   }
 
@@ -2151,7 +2363,7 @@ function getDummyHint(questContext, hintLevel = 1) {
         { de: "ich habe", es: "tengo" },
         { de: "deine Limonade", es: "tu limonada" }
       ],
-      exampleAnswer: "Sí, tengo tu limonada."
+      exampleAnswer: null
     };
   }
 
@@ -2164,7 +2376,7 @@ function getDummyHint(questContext, hintLevel = 1) {
       { de: "eine Limonade", es: "una limonada" },
       { de: "bitte", es: "por favor" }
     ],
-    exampleAnswer: "Quiero una limonada, por favor."
+    exampleAnswer: null
   };
 }
 
@@ -2205,14 +2417,19 @@ function buildHintPrompt(questContext, lastUserAnswer, hintLevel) {
     "Antworte ausschließlich mit JSON, das exakt dem Schema entspricht.",
     "hintGerman soll kurz, freundlich und auf Deutsch sein.",
     "Gib keine XP, keine Items und keine Queständerungen aus.",
-    "Zeige keine vollständige Beispielantwort bei hintLevel 1 oder 2; exampleAnswer muss dann null sein.",
-    "Bei hintLevel 1-2 sind nur Vokabeln, kurze Hinweise und ein Satzanfang erlaubt.",
-    "Erst ab hintLevel 3 darf exampleAnswer eine vollständige Beispielantwort enthalten.",
+    "Gib auf keiner Hilfestufe eine vollständige Lösung oder Beispielantwort aus.",
+    "exampleAnswer muss immer null sein.",
+    "sentenceStarter darf höchstens zwei Wörter enthalten und niemals bereits die vollständige Antwort sein.",
+    "vocabulary darf nur einzelne Wörter oder kurze Wortgruppen mit höchstens zwei Wörtern enthalten.",
+    "hintGerman darf expectedExamples weder zitieren noch Wort für Wort rekonstruieren.",
+    "Nutze stattdessen Bedeutungen, Übersetzungen, Grammatikhinweise und Hinweise zur Satzstruktur.",
     "",
     "Kontextregeln:",
     "- currentStep buy_lemonade: Hilf dem Nutzer, höflich eine Limonade zu bestellen.",
     "- currentStep bring_to_carlos: Hilf dem Nutzer, Carlos zu sagen, dass er seine Limonade hat oder sie ihm gibt.",
-    "- Je höher hintLevel ist, desto konkreter darf die Hilfe werden.",
+    "- hintLevel 1 erklärt nur Absicht oder Situation und bietet einzelne Vokabeln.",
+    "- hintLevel 2 darf zusätzlich einen sehr kurzen Satzanfang geben.",
+    "- hintLevel 3 darf die letzte Antwort analysieren und einen Strukturhinweis geben, aber weiterhin keine Komplettlösung.",
     "",
     `Quest-Kontext: ${JSON.stringify(questContext)}`,
     `Letzte Nutzerantwort: ${lastUserAnswer || ""}`,
@@ -2242,6 +2459,7 @@ function buildEnvironmentPrompt() {
     "Antworte ausschließlich mit JSON, das exakt dem Schema entspricht.",
     "Nutze nur erlaubte scenarioIds, locationIds, location types, NPC IDs, learningGoals und Items aus dem World Model.",
     "Jede locationId entspricht einem vorhandenen PNG-Asset. Erfinde keine weiteren Orte oder Gebäude.",
+    "Jede NPC-ID besitzt ein festes Portrait und Idle-Sprite. Erfinde keine weiteren NPC-IDs.",
     "locations müssen konkrete Szenenobjekte sein. quest.locationId muss exakt eine id aus locations sein.",
     "quest.npcId muss exakt eine id aus npcs sein. Genau dieser NPC soll role quest_npc haben.",
     "successReward.item muss null sein oder exakt eine id aus items sein.",
@@ -2261,7 +2479,7 @@ function buildEnvironmentPrompt() {
   ].join("\n");
 }
 
-function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null) {
+function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null, taskTypePlan = []) {
   const allowedScenarioIds = [scenario.scenarioId];
   const storyPattern = getStoryPattern(learningFocus);
   const allowedWorldFrame = {
@@ -2273,7 +2491,8 @@ function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null
     learningGoals: scenario.allowedLearningGoals,
     items: scenario.allowedItems,
     primaryLearningGoal: learningFocus,
-    storyPattern
+    storyPattern,
+    taskTypePlan
   };
 
   return [
@@ -2285,6 +2504,7 @@ function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null
     "locations[].id muss aus locationIds im erlaubten Szenario-Rahmen stammen.",
     "Jede erlaubte locationId besitzt ein festes PNG-Asset. Erfinde keine weiteren Gebäude, Orte oder IDs.",
     "npcs[].id muss aus npcs im erlaubten Szenario-Rahmen stammen.",
+    "Jede erlaubte NPC-ID besitzt ein festes Portrait und Idle-Sprite. Erfinde keine weiteren Figuren oder IDs.",
     "items[].id muss aus items im erlaubten Szenario-Rahmen stammen.",
     "Nimm in items nur Dinge auf, die in tasks als rewardItem, requiredItem oder removeItemOnSuccess gebraucht werden.",
     "Bevorzuge abwechslungsreiche Alltagsziele aus learningGoals. Nutze order_drink nur, wenn es wirklich zum Szenario passt.",
@@ -2292,6 +2512,12 @@ function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null
     "Vermeide inhaltliche Wiederholungen der zuletzt erzeugten Aufgaben.",
     `Zuletzt verwendete Aufgabenabsichten: ${JSON.stringify(generationContext.recentTaskIntents || [])}`,
     "Das Level besteht aus einer einfachen Umgebung, einer Vokabel-Vorschau und 2-3 kurzen Aufgaben.",
+    "Setze taskType für jede Aufgabe exakt gemäß taskTypePlan anhand ihrer Reihenfolge. Nutze bei zwei Aufgaben die ersten zwei Einträge.",
+    "Bei taskType free_text muss wordOrder null sein.",
+    "Bei taskType word_order muss wordOrder ein Objekt mit 3-8 kurzen Wortkärtchen sein.",
+    "wordOrder.correctOrder enthält die Wörter in richtiger Reihenfolge; mit Leerzeichen verbunden muss es exakt expectedExamples[0] ergeben.",
+    "wordOrder.tiles enthält exakt dieselben Wörter wie correctOrder, darf aber in beliebiger Reihenfolge stehen.",
+    "Wortreihenfolge-Aufgaben müssen kurze eindeutige A1-Sätze ohne alternative Wortstellung verwenden.",
     "Jedes Level muss eine kleine Handlungskette mit mindestens zwei Stationen haben.",
     `Nutze diesen Handlungsbogen als roten Faden: ${storyPattern}`,
     "descriptionGerman beschreibt die Ausgangssituation und genau ein gemeinsames Levelziel, ohne eine Lösung vorzugeben.",
@@ -2385,7 +2611,7 @@ function validateStructuredOutput(value, schema, pathLabel = "output") {
     throw new Error(`Structured output validation failed at ${pathLabel}: value is outside enum.`);
   }
 
-  if (schema.type === "object" || schemaTypes.includes("object")) {
+  if ((schema.type === "object" || schemaTypes.includes("object")) && value !== null) {
     const properties = schema.properties || {};
     const required = schema.required || [];
 
@@ -2410,7 +2636,7 @@ function validateStructuredOutput(value, schema, pathLabel = "output") {
     }
   }
 
-  if (schema.type === "array" || schemaTypes.includes("array")) {
+  if ((schema.type === "array" || schemaTypes.includes("array")) && Array.isArray(value)) {
     if (typeof schema.minItems === "number" && value.length < schema.minItems) {
       throw new Error(`Structured output validation failed at ${pathLabel}: too few items.`);
     }
@@ -2514,45 +2740,100 @@ function normalizeEvaluation(evaluation, questContext) {
   };
 }
 
-function limitSentenceStarter(sentenceStarter, hintLevel) {
+function getHintExpectedExamples(questContext) {
+  return Array.isArray(questContext.expectedExamples)
+    ? questContext.expectedExamples.map((example) => String(example || "")).filter(Boolean)
+    : [];
+}
+
+function hintTextRevealsFullSolution(value, expectedExamples) {
+  const normalizedValue = normalizeForSolutionLeakCheck(value);
+  const visibleTokens = new Set(normalizedValue.split(/\s+/).filter(Boolean));
+
+  return expectedExamples.some((example) => {
+    const normalizedExample = normalizeForSolutionLeakCheck(example);
+
+    if (!normalizedExample) {
+      return false;
+    }
+
+    if (normalizedValue.includes(normalizedExample)) {
+      return true;
+    }
+
+    const solutionTokens = normalizedExample.split(/\s+/).filter(Boolean);
+    return solutionTokens.length >= 2 && solutionTokens.every((token) => visibleTokens.has(token));
+  });
+}
+
+function limitSentenceStarter(sentenceStarter, hintLevel, expectedExamples) {
   if (typeof sentenceStarter !== "string" || !sentenceStarter.trim()) {
     return null;
   }
 
-  if (Number(hintLevel) >= 3) {
-    return sentenceStarter;
-  }
-
   const words = sentenceStarter.replace(/\.+$/g, "").trim().split(/\s+/);
   const wordLimit = Number(hintLevel) >= 2 ? 2 : 1;
-  return `${words.slice(0, wordLimit).join(" ")}...`;
+  const limitedWords = words.slice(0, wordLimit);
+
+  while (
+    limitedWords.length > 0 &&
+    hintTextRevealsFullSolution(limitedWords.join(" "), expectedExamples)
+  ) {
+    limitedWords.pop();
+  }
+
+  return limitedWords.length > 0 ? `${limitedWords.join(" ")}...` : null;
+}
+
+function sanitizeHintVocabulary(vocabulary, fallbackVocabulary, expectedExamples) {
+  const sanitizeEntries = (entries) => {
+    const uniqueEntries = new Map();
+
+    (Array.isArray(entries) ? entries : []).slice(0, 5).forEach((entry) => {
+      const de = String(entry.de || "").trim();
+      const es = String(entry.es || "").trim();
+      const spanishWordCount = es.split(/\s+/).filter(Boolean).length;
+
+      if (!de || !es || spanishWordCount > 2 || hintTextRevealsFullSolution(es, expectedExamples)) {
+        return;
+      }
+
+      uniqueEntries.set(normalizeForSolutionLeakCheck(es), { de, es });
+    });
+
+    return [...uniqueEntries.values()];
+  };
+  const mergedVocabulary = new Map();
+
+  [...sanitizeEntries(vocabulary), ...sanitizeEntries(fallbackVocabulary)].forEach((entry) => {
+    if (mergedVocabulary.size < 5) {
+      mergedVocabulary.set(normalizeForSolutionLeakCheck(entry.es), entry);
+    }
+  });
+
+  return [...mergedVocabulary.values()];
 }
 
 function normalizeHint(hint, questContext, hintLevel) {
   const fallbackHint = getDummyHint(questContext, hintLevel);
-  const safeHintLevel = Number(hint.hintLevel || hintLevel);
-  const canShowExample = safeHintLevel >= 3;
+  const safeHintLevel = Math.max(1, Math.min(Number(hint.hintLevel || hintLevel) || 1, 3));
+  const expectedExamples = getHintExpectedExamples(questContext);
   const candidateSentenceStarter =
     typeof hint.sentenceStarter === "string" || hint.sentenceStarter === null
       ? hint.sentenceStarter
       : fallbackHint.sentenceStarter;
-  const vocabulary = Array.isArray(hint.vocabulary)
-    ? hint.vocabulary.slice(0, 5).map((entry) => ({
-        de: String(entry.de || ""),
-        es: String(entry.es || "")
-      }))
-    : fallbackHint.vocabulary;
+  const candidateHintGerman = truncateSentences(hint.hintGerman, 2);
+  const safeHintGerman =
+    candidateHintGerman && !hintTextRevealsFullSolution(candidateHintGerman, expectedExamples)
+      ? candidateHintGerman
+      : fallbackHint.hintGerman;
 
   return {
     hintLevel: safeHintLevel,
-    hintGerman: truncateSentences(hint.hintGerman, 2) || fallbackHint.hintGerman,
-    sentenceStarter: limitSentenceStarter(candidateSentenceStarter, safeHintLevel),
-    vocabulary,
-    exampleAnswer: canShowExample
-      ? typeof hint.exampleAnswer === "string" || hint.exampleAnswer === null
-        ? hint.exampleAnswer
-        : fallbackHint.exampleAnswer
-      : null
+    hintGerman: safeHintGerman,
+    sentenceStarter: limitSentenceStarter(candidateSentenceStarter, safeHintLevel, expectedExamples),
+    vocabulary: sanitizeHintVocabulary(hint.vocabulary, fallbackHint.vocabulary, expectedExamples),
+    exampleAnswer: null
   };
 }
 
@@ -2743,6 +3024,7 @@ async function generateLevelWithOpenAI(scenario, generationContext = {}) {
   }
 
   const learningFocus = selectLearningFocus(scenario, generationContext.recentTaskIntents);
+  const taskTypePlan = createTaskTypePlan();
   const scenarioLevelSchema = createLevelSchemaForScenario(scenario);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -2757,7 +3039,7 @@ async function generateLevelWithOpenAI(scenario, generationContext = {}) {
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        input: buildLevelPrompt(scenario, generationContext, learningFocus),
+        input: buildLevelPrompt(scenario, generationContext, learningFocus, taskTypePlan),
         text: {
           format: {
             type: "json_schema",
@@ -2779,7 +3061,7 @@ async function generateLevelWithOpenAI(scenario, generationContext = {}) {
     const outputText = extractOutputText(responseData);
     const parsedLevel = parseStructuredOutput(outputText, scenarioLevelSchema, "level");
 
-    return normalizeLevel(parsedLevel, scenario);
+    return normalizeLevel(parsedLevel, scenario, taskTypePlan);
   } finally {
     clearTimeout(timeout);
   }
@@ -2915,6 +3197,12 @@ app.post("/api/evaluate-answer", async (req, res) => {
     return res.json(normalizeEvaluation(getDummyEvaluation(normalizedAnswer, normalizedQuestContext), normalizedQuestContext));
   }
 
+  if (currentStep === "generated_level_task" && safeQuestContext.taskType === "word_order") {
+    return res.json(
+      normalizeEvaluation(evaluateWordOrderTask(normalizedAnswer, normalizedQuestContext), normalizedQuestContext)
+    );
+  }
+
   try {
     const aiEvaluation = await evaluateWithOpenAI(userAnswer, normalizedQuestContext);
 
@@ -2939,7 +3227,9 @@ app.post("/api/generate-hint", async (req, res) => {
   const safeHintLevel = Math.max(1, Math.min(Number(hintLevel) || 1, 3));
 
   if (safeQuestContext.questStatus === "completed" || currentStep === "completed") {
-    return res.json(getDummyHint(normalizedQuestContext, safeHintLevel));
+    return res.json(
+      normalizeHint(getDummyHint(normalizedQuestContext, safeHintLevel), normalizedQuestContext, safeHintLevel)
+    );
   }
 
   try {
@@ -2952,7 +3242,9 @@ app.post("/api/generate-hint", async (req, res) => {
     console.error("OpenAI hint generation failed, using dummy fallback:", error.message);
   }
 
-  return res.json(getDummyHint(normalizedQuestContext, safeHintLevel));
+  return res.json(
+    normalizeHint(getDummyHint(normalizedQuestContext, safeHintLevel), normalizedQuestContext, safeHintLevel)
+  );
 });
 
 app.post("/api/generate-item-choices", async (req, res) => {

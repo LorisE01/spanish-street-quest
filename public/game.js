@@ -24,7 +24,12 @@
   const dialogLine = document.getElementById("vendor-line");
   const dialogItemSection = document.getElementById("dialog-item-section");
   const dialogItemOptions = document.getElementById("dialog-item-options");
+  const freeTextAnswer = document.getElementById("free-text-answer");
   const answerInput = document.getElementById("answer-input");
+  const wordOrderSection = document.getElementById("word-order-section");
+  const wordOrderAnswer = document.getElementById("word-order-answer");
+  const wordOrderBank = document.getElementById("word-order-bank");
+  const resetWordOrderButton = document.getElementById("reset-word-order");
   const feedbackMessage = document.getElementById("feedback-message");
   const hintContent = document.getElementById("hint-content");
   const submitButton = document.getElementById("submit-answer");
@@ -52,18 +57,7 @@
   let activeLevel = null;
   let activeTaskIndex = 0;
 
-  const characterAssets = {
-    cashier: {
-      name: "Kassierer",
-      portrait: "/assets/characters/cashier.png",
-      sprite: "/assets/characters/cashier_idle.png"
-    },
-    carlos: {
-      name: "Carlos",
-      portrait: "/assets/characters/carlos.png",
-      sprite: "/assets/characters/carlos_idle.png"
-    }
-  };
+  const characterAssets = window.CHARACTER_ASSETS || {};
 
   const buildingAssets = window.BUILDING_ASSETS || {};
 
@@ -83,6 +77,10 @@
     lastUserAnswer: null,
     hintLevel: 1,
     selectedDialogItemId: null,
+    wordOrderTaskId: null,
+    wordOrderTiles: [],
+    wordOrderAnswerIds: [],
+    wordOrderBankIds: [],
     itemImageCache: new Map(),
     itemChoiceCache: new Map(),
     levelStatus: "idle",
@@ -97,37 +95,8 @@
     return activeLevel ? activeLevel.tasks[activeTaskIndex] : null;
   }
 
-  function getCharacterKeyForTask(task) {
-    if (!task) {
-      return "cashier";
-    }
-
-    const text = [
-      task.npcId,
-      task.npcName,
-      task.expectedIntent,
-      task.instructionGerman,
-      task.titleGerman
-    ]
-      .join(" ")
-      .toLowerCase();
-    const isDeliveryTask =
-      Boolean(task.requiredItem || task.removeItemOnSuccess) ||
-      text.includes("carlos") ||
-      text.includes("give_item") ||
-      text.includes("bring") ||
-      text.includes("bringst") ||
-      text.includes("bringe") ||
-      text.includes("geben") ||
-      text.includes("gib") ||
-      text.includes("entregar") ||
-      text.includes("tengo");
-
-    return isDeliveryTask ? "carlos" : "cashier";
-  }
-
   function getCharacterAssetForTask(task) {
-    return characterAssets[getCharacterKeyForTask(task)];
+    return task ? characterAssets[task.npcId] || null : null;
   }
 
   function getBuildingAssetForLocation(location) {
@@ -277,27 +246,26 @@
         return currentTaskOrder >= appearsAtTask && currentTaskOrder <= leavesAfterTask;
       })
       .forEach((npc) => {
-      const isActiveNpc = activeTask && npc.id === activeTask.npcId;
-      const activeAsset = isActiveNpc ? getCharacterAssetForTask(activeTask) : null;
-      const namedAsset = npc.id === "carlos" ? characterAssets.carlos : npc.id === "cashier" ? characterAssets.cashier : null;
-      const asset = activeAsset || namedAsset;
-      const npcElement = document.createElement("div");
-      npcElement.className = `dynamic-npc${asset?.sprite ? " dynamic-npc--sprite" : ""}${
-        isActiveNpc ? " dynamic-npc--quest" : ""
-      }`;
-      npcElement.dataset.npcId = npc.id;
-      npcElement.style.left = `${worldUnitsToPixels(npc.x)}px`;
+        const isActiveNpc = activeTask && npc.id === activeTask.npcId;
+        const asset = characterAssets[npc.id] || null;
 
-      if (asset?.sprite) {
+        if (!asset?.sprite) {
+          console.warn(`NPC ${npc.id} wird nicht gerendert, weil kein Idle-Asset vorhanden ist.`);
+          return;
+        }
+
+        const npcElement = document.createElement("div");
+        npcElement.className = `dynamic-npc dynamic-npc--sprite${isActiveNpc ? " dynamic-npc--quest" : ""}`;
+        npcElement.dataset.npcId = npc.id;
+        npcElement.style.left = `${worldUnitsToPixels(npc.x)}px`;
         npcElement.style.backgroundImage = `url("${asset.sprite}")`;
-      }
 
-      const label = document.createElement("span");
-      label.className = "dynamic-npc__label";
-      label.textContent = npc.nameGerman;
-      npcElement.appendChild(label);
-      sceneLayer.appendChild(npcElement);
-    });
+        const label = document.createElement("span");
+        label.className = "dynamic-npc__label";
+        label.textContent = npc.nameGerman;
+        npcElement.appendChild(label);
+        sceneLayer.appendChild(npcElement);
+      });
   }
 
   function removeOldQuestItemsForLevel(level) {
@@ -330,6 +298,7 @@
     state.selectedDialogItemId = null;
     state.itemImageCache.clear();
     state.itemChoiceCache.clear();
+    clearWordOrderTask();
     state.cameraX = 0;
     state.playerX = 120;
     dialogOverlay.hidden = true;
@@ -523,6 +492,7 @@
       questStatus: state.levelStatus === "completed" ? "completed" : "active",
       taskId: task.taskId,
       taskOrder: task.order,
+      taskType: task.taskType || "free_text",
       locationId: task.locationId,
       npcId: task.npcId,
       npcName: task.npcName,
@@ -685,6 +655,153 @@
     });
   }
 
+  function isWordOrderTask(task) {
+    return task?.taskType === "word_order" && task.wordOrder;
+  }
+
+  function clearWordOrderTask() {
+    state.wordOrderTaskId = null;
+    state.wordOrderTiles = [];
+    state.wordOrderAnswerIds = [];
+    state.wordOrderBankIds = [];
+    wordOrderAnswer.innerHTML = "";
+    wordOrderBank.innerHTML = "";
+  }
+
+  function initializeWordOrderTask(task) {
+    clearWordOrderTask();
+    state.wordOrderTaskId = task.taskId;
+    state.wordOrderTiles = task.wordOrder.tiles.map((text, index) => ({
+      id: `${task.taskId}:word:${index}`,
+      text
+    }));
+    state.wordOrderBankIds = state.wordOrderTiles.map((tile) => tile.id);
+    renderWordOrderState();
+  }
+
+  function getWordOrderTile(tileId) {
+    return state.wordOrderTiles.find((tile) => tile.id === tileId) || null;
+  }
+
+  function moveWordOrderTile(tileId, targetZone, beforeTileId = null) {
+    if (!getWordOrderTile(tileId) || beforeTileId === tileId) {
+      return;
+    }
+
+    state.wordOrderAnswerIds = state.wordOrderAnswerIds.filter((id) => id !== tileId);
+    state.wordOrderBankIds = state.wordOrderBankIds.filter((id) => id !== tileId);
+
+    const targetIds = targetZone === "answer" ? state.wordOrderAnswerIds : state.wordOrderBankIds;
+    const insertionIndex = beforeTileId ? targetIds.indexOf(beforeTileId) : -1;
+
+    if (insertionIndex >= 0) {
+      targetIds.splice(insertionIndex, 0, tileId);
+    } else {
+      targetIds.push(tileId);
+    }
+
+    renderWordOrderState();
+  }
+
+  function createWordOrderTile(tileId, zone) {
+    const tile = getWordOrderTile(tileId);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `word-order__tile word-order__tile--${zone}`;
+    button.dataset.wordTileId = tileId;
+    button.draggable = true;
+    button.textContent = tile?.text || "";
+    button.setAttribute(
+      "aria-label",
+      zone === "bank" ? `${tile?.text}: zum Satz hinzufügen` : `${tile?.text}: zurück in die Wortbank`
+    );
+
+    button.addEventListener("click", () => {
+      moveWordOrderTile(tileId, zone === "bank" ? "answer" : "bank");
+    });
+    button.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", tileId);
+      button.classList.add("word-order__tile--dragging");
+    });
+    button.addEventListener("dragend", () => {
+      button.classList.remove("word-order__tile--dragging");
+      wordOrderAnswer.classList.remove("word-order__zone--dragover");
+      wordOrderBank.classList.remove("word-order__zone--dragover");
+    });
+
+    return button;
+  }
+
+  function renderWordOrderZone(container, tileIds, zone) {
+    container.innerHTML = "";
+
+    if (tileIds.length === 0) {
+      const placeholder = document.createElement("span");
+      placeholder.className = "word-order__placeholder";
+      placeholder.textContent = zone === "answer" ? "Ziehe Wörter hierher." : "Alle Wörter wurden verwendet.";
+      container.appendChild(placeholder);
+      return;
+    }
+
+    tileIds.forEach((tileId) => container.appendChild(createWordOrderTile(tileId, zone)));
+  }
+
+  function renderWordOrderState() {
+    renderWordOrderZone(wordOrderAnswer, state.wordOrderAnswerIds, "answer");
+    renderWordOrderZone(wordOrderBank, state.wordOrderBankIds, "bank");
+  }
+
+  function renderTaskAnswerMode(task) {
+    const usesWordOrder = isWordOrderTask(task);
+    freeTextAnswer.hidden = usesWordOrder;
+    wordOrderSection.hidden = !usesWordOrder;
+
+    if (usesWordOrder) {
+      initializeWordOrderTask(task);
+      return;
+    }
+
+    clearWordOrderTask();
+  }
+
+  function getCurrentTaskAnswer(task) {
+    if (!isWordOrderTask(task)) {
+      return answerInput.value.trim();
+    }
+
+    return state.wordOrderAnswerIds
+      .map((tileId) => getWordOrderTile(tileId)?.text || "")
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+  }
+
+  function focusCurrentAnswerControl(task) {
+    if (!isWordOrderTask(task)) {
+      answerInput.focus();
+      return;
+    }
+
+    const firstTile = wordOrderBank.querySelector(".word-order__tile") || wordOrderAnswer.querySelector(".word-order__tile");
+    (firstTile || resetWordOrderButton).focus();
+  }
+
+  function handleWordOrderDragOver(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    event.currentTarget.classList.add("word-order__zone--dragover");
+  }
+
+  function handleWordOrderDrop(event) {
+    event.preventDefault();
+    const targetZone = event.currentTarget.dataset.wordZone;
+    const tileId = event.dataTransfer.getData("text/plain");
+    const beforeTileId = event.target.closest(".word-order__tile")?.dataset.wordTileId || null;
+    event.currentTarget.classList.remove("word-order__zone--dragover");
+    moveWordOrderTile(tileId, targetZone, beforeTileId);
+  }
+
   function clearHint() {
     hintContent.innerHTML = "";
   }
@@ -720,13 +837,6 @@
       hintBox.appendChild(vocabList);
     }
 
-    if (hint.exampleAnswer) {
-      const example = document.createElement("p");
-      example.className = "hint-content__example";
-      example.textContent = `Beispiel: ${hint.exampleAnswer}`;
-      hintBox.appendChild(example);
-    }
-
     hintContent.appendChild(hintBox);
   }
 
@@ -745,8 +855,8 @@
     dialogPanel.classList.add("dialog--with-portrait");
     dialogPortraitCard.hidden = false;
     dialogPortrait.src = asset.portrait;
-    dialogPortrait.alt = `Portrait von ${asset.name}`;
-    dialogPortraitCaption.textContent = asset.name;
+    dialogPortrait.alt = `Portrait von ${task.npcName || asset.name}`;
+    dialogPortraitCaption.textContent = task.npcName || asset.name;
   }
 
   function openDialog(target) {
@@ -762,13 +872,14 @@
     dialogLine.textContent = task.npcSpanish;
     renderDialogPortrait(task);
     renderDialogItems(task);
-    dialogOverlay.hidden = false;
     answerInput.value = "";
+    renderTaskAnswerMode(task);
+    dialogOverlay.hidden = false;
     feedbackMessage.textContent = task.instructionGerman;
     feedbackMessage.className = "feedback";
     clearHint();
     updateInteractionPrompt();
-    answerInput.focus();
+    focusCurrentAnswerControl(task);
   }
 
   function closeDialog() {
@@ -776,6 +887,7 @@
     state.activeDialogTarget = null;
     dialogOverlay.hidden = true;
     clearDialogItems();
+    clearWordOrderTask();
     clearHint();
     updateInteractionPrompt();
   }
@@ -824,7 +936,7 @@
 
   async function handleSubmitAnswer() {
     const task = getActiveTask();
-    const userAnswer = answerInput.value;
+    const userAnswer = getCurrentTaskAnswer(task);
     state.lastUserAnswer = userAnswer;
 
     if (!task || state.levelStatus === "completed") {
@@ -853,8 +965,16 @@
       return;
     }
 
+    if (isWordOrderTask(task) && state.wordOrderAnswerIds.length !== state.wordOrderTiles.length) {
+      feedbackMessage.textContent = "Nutze zuerst alle Wörter aus der Wortbank.";
+      feedbackMessage.className = "feedback feedback--error";
+      return;
+    }
+
     if (!userAnswer.trim()) {
-      feedbackMessage.textContent = "Schreib eine kurze Antwort auf Spanisch.";
+      feedbackMessage.textContent = isWordOrderTask(task)
+        ? "Ordne zuerst die Wörter zu einem Satz."
+        : "Schreib eine kurze Antwort auf Spanisch.";
       feedbackMessage.className = "feedback feedback--error";
       return;
     }
@@ -877,7 +997,7 @@
       console.error(error);
     } finally {
       submitButton.disabled = false;
-      answerInput.focus();
+      focusCurrentAnswerControl(task);
     }
   }
 
@@ -898,7 +1018,7 @@
       return;
     }
 
-    const lastUserAnswer = answerInput.value.trim() || state.lastUserAnswer;
+    const lastUserAnswer = getCurrentTaskAnswer(task) || state.lastUserAnswer;
 
     helpButton.disabled = true;
     feedbackMessage.textContent = "Hilfe wird vorbereitet...";
@@ -917,7 +1037,7 @@
       console.error(error);
     } finally {
       helpButton.disabled = false;
-      answerInput.focus();
+      focusCurrentAnswerControl(task);
     }
   }
 
@@ -1064,9 +1184,22 @@
   sidequestButton.addEventListener("click", showRandomSidequest);
   closeSidequestButton.addEventListener("click", closeSidequest);
   closeSidequestXButton.addEventListener("click", closeSidequest);
+  [wordOrderAnswer, wordOrderBank].forEach((zone) => {
+    zone.addEventListener("dragover", handleWordOrderDragOver);
+    zone.addEventListener("dragleave", () => zone.classList.remove("word-order__zone--dragover"));
+    zone.addEventListener("drop", handleWordOrderDrop);
+  });
+  resetWordOrderButton.addEventListener("click", () => {
+    const task = getActiveTask();
+
+    if (isWordOrderTask(task)) {
+      initializeWordOrderTask(task);
+      focusCurrentAnswerControl(task);
+    }
+  });
 
   answerInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
+    if (event.key === "Enter" && !isWordOrderTask(getActiveTask())) {
       handleSubmitAnswer();
     }
   });

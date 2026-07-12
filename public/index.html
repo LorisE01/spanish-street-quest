@@ -174,8 +174,33 @@
           </div>
 
           <div class="dialog__answer-box">
-            <label class="dialog__label" for="answer-input">Deine Antwort <span>(auf Spanisch)</span></label>
-            <input id="answer-input" type="text" placeholder="Schreibe hier deine Antwort..." autocomplete="off" />
+            <div id="free-text-answer">
+              <label class="dialog__label" for="answer-input">Deine Antwort <span>(auf Spanisch)</span></label>
+              <input id="answer-input" type="text" placeholder="Schreibe hier deine Antwort..." autocomplete="off" />
+            </div>
+
+            <div id="word-order-section" class="word-order" hidden>
+              <div class="word-order__heading">
+                <p class="dialog__label">Bringe die Wörter in die richtige Reihenfolge</p>
+                <button id="reset-word-order" class="word-order__reset" type="button">Zurücksetzen</button>
+              </div>
+              <p class="word-order__zone-label">Dein Satz</p>
+              <div
+                id="word-order-answer"
+                class="word-order__zone word-order__zone--answer"
+                data-word-zone="answer"
+                aria-label="Zusammengesetzter Satz"
+                aria-live="polite"
+              ></div>
+              <p class="word-order__zone-label">Wortbank</p>
+              <div
+                id="word-order-bank"
+                class="word-order__zone word-order__zone--bank"
+                data-word-zone="bank"
+                aria-label="Verfügbare Wörter"
+              ></div>
+            </div>
+
             <div class="dialog__actions">
               <button id="submit-answer" type="button">Antwort senden</button>
               <button id="help-button" type="button">Hilfe</button>
@@ -212,6 +237,7 @@
     <script src="quests.js"></script>
     <script src="sidequests.js"></script>
     <script src="buildingAssets.js"></script>
+    <script src="characterAssets.js"></script>
     <script src="aiClient.js"></script>
     <script src="game.js"></script>
   </body>

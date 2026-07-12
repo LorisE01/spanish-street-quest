@@ -1285,6 +1285,107 @@ button:focus-visible {
   background: #ffffff;
 }
 
+#free-text-answer[hidden],
+.word-order[hidden] {
+  display: none;
+}
+
+.word-order__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.word-order__heading .dialog__label {
+  margin: 0;
+}
+
+.word-order__reset {
+  min-height: 36px;
+  border: 2px solid #07101d;
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  color: #102033;
+  font-size: 0.82rem;
+  font-weight: 900;
+  background: #e7edf5;
+  box-shadow: inset 0 -3px rgba(0, 0, 0, 0.12), 0 2px 0 #07101d;
+}
+
+.word-order__zone-label {
+  margin: 0.55rem 0 0.3rem;
+  color: #42526d;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.word-order__zone {
+  min-height: 64px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.45rem;
+  border: 3px dashed #9ba9bc;
+  border-radius: 8px;
+  padding: 0.55rem;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.word-order__zone--answer {
+  border-color: #2f6fed;
+  background: #eef5ff;
+}
+
+.word-order__zone--bank {
+  background: #f3f6fa;
+}
+
+.word-order__zone--dragover {
+  border-color: #15955c;
+  background: #e8f8ef;
+}
+
+.word-order__tile {
+  min-height: 42px;
+  border: 3px solid #07101d;
+  border-radius: 6px;
+  padding: 0.45rem 0.7rem;
+  color: #102033;
+  font-weight: 900;
+  cursor: grab;
+  box-shadow: inset 0 -4px rgba(0, 0, 0, 0.13), 0 2px 0 #07101d;
+  touch-action: manipulation;
+}
+
+.word-order__tile--bank {
+  background: linear-gradient(180deg, #ffe38a, #f5b942);
+}
+
+.word-order__tile--answer {
+  background: linear-gradient(180deg, #ffffff, #dceaff);
+}
+
+.word-order__tile:active {
+  cursor: grabbing;
+  transform: translateY(1px);
+  box-shadow: inset 0 -2px rgba(0, 0, 0, 0.13), 0 1px 0 #07101d;
+}
+
+.word-order__tile--dragging {
+  opacity: 0.45;
+}
+
+.word-order__placeholder {
+  align-self: center;
+  color: #6f7d91;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
 .dialog__answer-box,
 .dialog__feedback-box {
   grid-column: 1 / -1;
