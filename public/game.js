@@ -20,6 +20,7 @@
   const dialogPortraitCard = document.getElementById("dialog-portrait-card");
   const dialogPortrait = document.getElementById("dialog-portrait");
   const dialogPortraitCaption = document.getElementById("dialog-portrait-caption");
+  const dialogSpeakerName = document.getElementById("dialog-speaker-name");
   const dialogLine = document.getElementById("vendor-line");
   const dialogItemSection = document.getElementById("dialog-item-section");
   const dialogItemOptions = document.getElementById("dialog-item-options");
@@ -31,8 +32,10 @@
   const closeDialogButton = document.getElementById("close-dialog");
   const closeDialogXButton = document.getElementById("close-dialog-x");
   const xpValue = document.getElementById("xp-value");
+  const xpFill = document.getElementById("xp-fill");
   const environmentTitle = document.getElementById("environment-title");
   const questTitle = document.getElementById("quest-title");
+  const questlogCurrent = document.getElementById("questlog-current");
   const inventoryList = document.getElementById("inventory-list");
   const world = document.getElementById("world");
   const newEnvironmentButton = document.getElementById("new-environment-button");
@@ -62,6 +65,8 @@
     }
   };
 
+  const buildingAssets = window.BUILDING_ASSETS || {};
+
   const state = {
     gameStarted: false,
     playerX: 120,
@@ -81,6 +86,9 @@
     itemImageCache: new Map(),
     itemChoiceCache: new Map(),
     levelStatus: "idle",
+    levelLoadFailed: false,
+    recentScenarioIds: [],
+    recentTaskIntents: [],
     xpAwardKeys: new Set(),
     completedSidequests: new Set()
   };
@@ -120,6 +128,18 @@
 
   function getCharacterAssetForTask(task) {
     return characterAssets[getCharacterKeyForTask(task)];
+  }
+
+  function getBuildingAssetForLocation(location) {
+    if (!location) {
+      return null;
+    }
+
+    return buildingAssets[location.id] || null;
+  }
+
+  function getLocationDisplayWidth(location) {
+    return getBuildingAssetForLocation(location)?.width || Number(location?.width) || 150;
   }
 
   function getWorldPixelWidth() {
@@ -169,6 +189,8 @@
     appShell.hidden = true;
     levelCompleteScreen.hidden = true;
     vocabularyScreen.hidden = false;
+    state.levelLoadFailed = false;
+    startLevelButton.textContent = "Level starten";
     startLevelButton.hidden = false;
     vocabularyTitle.textContent = level.titleGerman;
     vocabularyDescription.textContent = level.descriptionGerman;
@@ -176,11 +198,19 @@
   }
 
   function updateHud() {
+    const activeTask = getActiveTask();
     environmentTitle.textContent = activeLevel?.titleGerman || "Noch nicht geladen";
     questTitle.textContent =
       state.levelStatus === "completed"
         ? "Level abgeschlossen"
-        : getActiveTask()?.titleGerman || "Noch nicht geladen";
+        : activeTask?.titleGerman || "Noch nicht geladen";
+
+    if (questlogCurrent) {
+      questlogCurrent.textContent =
+        state.levelStatus === "completed"
+          ? activeLevel?.summaryGerman || "Level abgeschlossen."
+          : activeTask?.instructionGerman || "Folge der aktuellen Quest und sprich mit der markierten Person.";
+    }
   }
 
   function updateWorldScroll() {
@@ -207,11 +237,24 @@
     sceneLayer.style.width = `${state.worldWidth}px`;
 
     activeLevel.locations.forEach((location) => {
+      const buildingAsset = getBuildingAssetForLocation(location);
+
+      if (!buildingAsset) {
+        console.warn(`Location ${location.id} wird nicht gerendert, weil kein PNG-Asset vorhanden ist.`);
+        return;
+      }
+
       const locationElement = document.createElement("div");
-      locationElement.className = `dynamic-location dynamic-location--${location.type}`;
+      locationElement.className = `dynamic-location dynamic-location--${location.type} dynamic-location--asset`;
       locationElement.dataset.locationId = location.id;
       locationElement.style.left = `${worldUnitsToPixels(location.x)}px`;
-      locationElement.style.width = `${location.width}px`;
+      locationElement.style.width = `${getLocationDisplayWidth(location)}px`;
+
+      const image = document.createElement("img");
+      image.className = "dynamic-location__asset";
+      image.src = buildingAsset.src;
+      image.alt = location.labelGerman;
+      locationElement.appendChild(image);
 
       const label = document.createElement("span");
       label.className = "dynamic-location__label";
@@ -263,7 +306,20 @@
     renderInventory();
   }
 
+  function rememberGeneratedLevel(level) {
+    state.recentScenarioIds = [
+      level.scenarioId,
+      ...state.recentScenarioIds.filter((scenarioId) => scenarioId !== level.scenarioId)
+    ].slice(0, 4);
+
+    const taskIntents = level.tasks
+      .map((task) => String(task.expectedIntent || "").trim())
+      .filter(Boolean);
+    state.recentTaskIntents = [...taskIntents, ...state.recentTaskIntents].slice(0, 8);
+  }
+
   function resetLevelState(level) {
+    rememberGeneratedLevel(level);
     activeLevel = level;
     activeTaskIndex = 0;
     state.levelStatus = "preview";
@@ -296,13 +352,19 @@
     vocabularyTitle.textContent = "Level wird geladen...";
     vocabularyDescription.textContent = "Eine Szene wird vorbereitet.";
     vocabularyList.innerHTML = "";
+    state.levelLoadFailed = false;
 
     try {
-      const level = await aiClient.generateLevel();
+      const level = await aiClient.generateLevel({
+        recentScenarioIds: state.recentScenarioIds,
+        recentTaskIntents: state.recentTaskIntents
+      });
       resetLevelState(level);
     } catch (error) {
-      vocabularyDescription.textContent = "Das Level konnte nicht geladen werden. Bitte versuche es erneut.";
-      startLevelButton.hidden = true;
+      state.levelLoadFailed = true;
+      vocabularyDescription.textContent = `Das KI-Level konnte nicht geladen werden. ${error.message}`;
+      startLevelButton.textContent = "Erneut versuchen";
+      startLevelButton.hidden = false;
       console.error(error);
     } finally {
       playButton.disabled = false;
@@ -377,7 +439,7 @@
     const npcElement = getTaskNpcElement();
     const locationElement = getTaskLocationElement();
     const npcCenter = getNpcWorldCenter(taskNpc);
-    const locationCenter = taskLocation ? worldUnitsToPixels(taskLocation.x) + taskLocation.width / 2 : NaN;
+    const locationCenter = taskLocation ? worldUnitsToPixels(taskLocation.x) + getLocationDisplayWidth(taskLocation) / 2 : NaN;
 
     if (!isNearWorldPosition(npcCenter) && !isNearWorldPosition(locationCenter)) {
       return null;
@@ -419,7 +481,10 @@
 
     state.xpAwardKeys.add(awardKey);
     state.xp = Math.min(100, state.xp + amount);
-    xpValue.textContent = `${state.xp}/100`;
+    xpValue.textContent = `${state.xp}/100 XP`;
+    if (xpFill) {
+      xpFill.style.width = `${state.xp}%`;
+    }
     return true;
   }
 
@@ -690,7 +755,10 @@
     state.activeDialogTarget = target;
     state.hintLevel = 1;
     state.lastUserAnswer = null;
-    dialogTitle.textContent = task.npcName;
+    dialogTitle.textContent = task.titleGerman || task.instructionGerman || "Aktuelle Aufgabe";
+    if (dialogSpeakerName) {
+      dialogSpeakerName.textContent = task.npcName;
+    }
     dialogLine.textContent = task.npcSpanish;
     renderDialogPortrait(task);
     renderDialogItems(task);
@@ -978,7 +1046,14 @@
     state.gameStarted = true;
     loadGeneratedLevel();
   });
-  startLevelButton.addEventListener("click", startLevel);
+  startLevelButton.addEventListener("click", () => {
+    if (state.levelLoadFailed) {
+      loadGeneratedLevel();
+      return;
+    }
+
+    startLevel();
+  });
   nextLevelButton.addEventListener("click", loadGeneratedLevel);
   submitButton.addEventListener("click", handleSubmitAnswer);
   helpButton.addEventListener("click", handleHelpRequest);

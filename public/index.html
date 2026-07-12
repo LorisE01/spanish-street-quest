@@ -9,12 +9,34 @@
   <body>
     <section id="main-menu" class="main-menu">
       <div class="main-menu__content">
-        <h1>Spanish Street Quest</h1>
-        <p>Lerne Spanisch in dynamischen KI-Szenarien</p>
+        <div class="main-menu__title-panel">
+          <h1 class="main-menu__title">
+            <span>Spanish</span>
+            <span>Street Quest</span>
+          </h1>
+          <p>Lerne Spanisch spielerisch!</p>
+        </div>
         <div class="main-menu__actions">
-          <button id="play-button" type="button">Spielen</button>
-          <button class="secondary-button" type="button">Anleitung</button>
-          <button class="secondary-button" type="button">Einstellungen</button>
+          <button id="play-button" class="main-menu__button main-menu__button--primary" type="button">
+            <span class="menu-icon menu-icon--play" aria-hidden="true"></span>
+            Neues Spiel
+          </button>
+          <button class="main-menu__button" type="button">
+            <span class="menu-icon menu-icon--bookmark" aria-hidden="true"></span>
+            Fortsetzen
+          </button>
+          <button class="main-menu__button" type="button">
+            <span class="menu-icon menu-icon--character" aria-hidden="true"></span>
+            Charakter wählen
+          </button>
+          <button class="main-menu__button" type="button">
+            <span class="menu-icon menu-icon--settings" aria-hidden="true"></span>
+            Einstellungen
+          </button>
+          <button class="main-menu__button" type="button">
+            <span class="menu-icon menu-icon--help" aria-hidden="true">?</span>
+            Hilfe
+          </button>
         </div>
       </div>
     </section>
@@ -39,21 +61,43 @@
 
     <div id="app-shell" hidden>
       <header id="hud" class="hud">
-        <div class="hud__stat">
-          <span class="hud__label">Level</span>
-          <span id="level-value">1</span>
+        <div class="hud-panel hud-panel--player">
+          <img class="hud__avatar" src="/assets/characters/cashier.png" alt="" />
+          <div class="hud__player-info">
+            <div class="hud__level-row">
+              <span>Level <span id="level-value">1</span></span>
+              <span class="hud__star" aria-hidden="true">&#9733;</span>
+            </div>
+            <div class="hud__xp-track" aria-hidden="true">
+              <span id="xp-fill" class="hud__xp-fill"></span>
+            </div>
+            <span id="xp-value" class="hud__xp-text">0/100 XP</span>
+          </div>
         </div>
-        <div class="hud__stat">
-          <span class="hud__label">XP</span>
-          <span id="xp-value">0/100</span>
+
+        <div class="hud-panel hud-panel--quest">
+          <span class="hud__quest-icon" aria-hidden="true">&#9635;</span>
+          <div>
+            <span class="hud__label">Szene</span>
+            <span id="environment-title" class="hud__scene-title">Noch nicht geladen</span>
+            <span class="hud__label hud__label--gold">Aktuelle Quest</span>
+            <span id="quest-title" class="hud__quest-title">Noch nicht geladen</span>
+          </div>
         </div>
-        <div class="hud__quest">
-          <span class="hud__label">Szene</span>
-          <span id="environment-title">Noch nicht geladen</span>
-        </div>
-        <div class="hud__quest">
-          <span class="hud__label">Aktuelle Quest</span>
-          <span id="quest-title">Noch nicht geladen</span>
+
+        <div class="hud-panel hud-panel--tools">
+          <button class="hud-tool" type="button">
+            <span aria-hidden="true">&#9636;</span>
+            Vokabeln
+          </button>
+          <button class="hud-tool" type="button">
+            <span aria-hidden="true">?</span>
+            Hilfe
+          </button>
+          <button class="hud-tool" type="button">
+            <span aria-hidden="true">&#9881;</span>
+            Einstellungen
+          </button>
         </div>
       </header>
 
@@ -66,48 +110,92 @@
         </section>
 
         <div id="interaction-prompt" class="interaction-prompt" hidden>
-          Drücke E zum Interagieren
+          Dr&uuml;cke E zum Interagieren
         </div>
       </main>
 
-      <footer id="inventory" class="inventory">
-        <span class="inventory__label">Inventar</span>
-        <ul id="inventory-list" class="inventory__list">
-          <li class="inventory__empty">Leer</li>
-        </ul>
-        <button id="new-environment-button" class="new-quest-button" type="button" hidden>Nächstes Level</button>
-        <button id="new-quest-button" class="new-quest-button" type="button" hidden>Neue KI-Quest</button>
-        <button id="sidequest-button" class="sidequest-button" type="button">Mini-Challenge</button>
+      <footer id="inventory" class="inventory game-dashboard">
+        <section class="dashboard-panel dashboard-panel--inventory" aria-labelledby="inventory-heading">
+          <h2 id="inventory-heading" class="dashboard-title">
+            <span aria-hidden="true">&#9635;</span>
+            Inventar
+          </h2>
+          <ul id="inventory-list" class="inventory__list">
+            <li class="inventory__empty">Leer</li>
+          </ul>
+        </section>
+
+        <section class="dashboard-panel dashboard-panel--controls" aria-label="Steuerung">
+          <h2 class="dashboard-title">Steuerung</h2>
+          <div class="control-keys" aria-hidden="true">
+            <span>&larr;</span>
+            <span>&rarr;</span>
+            <span>E</span>
+          </div>
+          <p>Bewegen &middot; Interagieren</p>
+        </section>
+
+        <section class="dashboard-panel dashboard-panel--questlog" aria-labelledby="questlog-heading">
+          <h2 id="questlog-heading" class="dashboard-title">
+            <span aria-hidden="true">&#9636;</span>
+            Questlog
+          </h2>
+          <p id="questlog-current">Folge der aktuellen Quest und sprich mit der markierten Person.</p>
+          <div class="dashboard-actions">
+            <button id="new-environment-button" class="new-quest-button" type="button" hidden>N&auml;chstes Level</button>
+            <button id="new-quest-button" class="new-quest-button" type="button" hidden>Neue KI-Quest</button>
+            <button id="sidequest-button" class="sidequest-button" type="button">Mini-Challenge</button>
+          </div>
+        </section>
       </footer>
     </div>
 
     <div id="dialog-overlay" class="dialog-overlay" hidden>
       <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <div class="dialog__header">
-          <h1 id="dialog-title">Dialog</h1>
+          <h1>Aufgabe: <span id="dialog-title">Dialog</span></h1>
           <button id="close-dialog-x" class="icon-button" type="button" aria-label="Dialog schließen">x</button>
         </div>
-        <figure id="dialog-portrait-card" class="dialog__portrait-card" hidden>
-          <img id="dialog-portrait" class="dialog__portrait" src="" alt="" />
-          <figcaption id="dialog-portrait-caption" class="dialog__portrait-caption"></figcaption>
-        </figure>
-        <p id="vendor-line" class="dialog__line"></p>
-        <div id="dialog-item-section" class="dialog__item-section" hidden>
-          <h2 class="dialog__item-title">Gegenstand wählen</h2>
-          <div id="dialog-item-options" class="dialog__item-options" aria-live="polite"></div>
+
+        <div class="dialog__main">
+          <figure id="dialog-portrait-card" class="dialog__portrait-card" hidden>
+            <img id="dialog-portrait" class="dialog__portrait" src="" alt="" />
+            <figcaption id="dialog-portrait-caption" class="dialog__portrait-caption"></figcaption>
+          </figure>
+
+          <div class="dialog__conversation">
+            <h2 id="dialog-speaker-name" class="dialog__speaker-name">NPC</h2>
+            <p id="vendor-line" class="dialog__line"></p>
+          </div>
+
+          <div id="dialog-item-section" class="dialog__item-section" hidden>
+            <h2 class="dialog__item-title">Gegenstand wählen</h2>
+            <div id="dialog-item-options" class="dialog__item-options" aria-live="polite"></div>
+          </div>
+
+          <div class="dialog__answer-box">
+            <label class="dialog__label" for="answer-input">Deine Antwort <span>(auf Spanisch)</span></label>
+            <input id="answer-input" type="text" placeholder="Schreibe hier deine Antwort..." autocomplete="off" />
+            <div class="dialog__actions">
+              <button id="submit-answer" type="button">Antwort senden</button>
+              <button id="help-button" type="button">Hilfe</button>
+              <button id="close-dialog" type="button">Schließen</button>
+            </div>
+          </div>
+
+          <div class="dialog__feedback-box">
+            <h2>KI-Feedback</h2>
+            <p id="feedback-message" class="feedback" aria-live="polite"></p>
+          </div>
         </div>
-        <label class="dialog__label" for="answer-input">Deine Antwort</label>
-        <input id="answer-input" type="text" placeholder="Antworte auf Spanisch..." autocomplete="off" />
-        <p id="feedback-message" class="feedback" aria-live="polite"></p>
-        <div id="hint-content" class="hint-content" aria-live="polite"></div>
-        <div class="dialog__actions">
-          <button id="submit-answer" type="button">Antwort senden</button>
-          <button id="help-button" type="button">Hilfe</button>
-          <button id="close-dialog" type="button">Schließen</button>
-        </div>
+
+        <aside class="dialog__help-panel" aria-label="Hilfebereich">
+          <h2>Benötigst du Hilfe?</h2>
+          <p>Hier erscheinen Tipps, wenn du Hilfe anforderst.</p>
+          <div id="hint-content" class="hint-content" aria-live="polite"></div>
+        </aside>
       </section>
     </div>
-
     <div id="sidequest-overlay" class="sidequest-overlay" hidden>
       <section class="sidequest" role="dialog" aria-modal="true" aria-labelledby="sidequest-title">
         <div class="sidequest__header">
@@ -123,6 +211,7 @@
 
     <script src="quests.js"></script>
     <script src="sidequests.js"></script>
+    <script src="buildingAssets.js"></script>
     <script src="aiClient.js"></script>
     <script src="game.js"></script>
   </body>

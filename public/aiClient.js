@@ -1,15 +1,24 @@
+async function getApiErrorMessage(response, fallbackMessage) {
+  try {
+    const errorBody = await response.json();
+    return errorBody.message || fallbackMessage;
+  } catch (error) {
+    return fallbackMessage;
+  }
+}
+
 const aiClient = {
-  async generateLevel() {
+  async generateLevel(generationContext = {}) {
     const response = await fetch("/api/generate-level", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({})
+      body: JSON.stringify(generationContext)
     });
 
     if (!response.ok) {
-      throw new Error("Level konnte nicht geladen werden.");
+      throw new Error(await getApiErrorMessage(response, "Level konnte nicht geladen werden."));
     }
 
     return response.json();

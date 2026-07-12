@@ -1,7 +1,9 @@
 require("dotenv").config();
 
 const express = require("express");
+const fs = require("fs");
 const path = require("path");
+const configuredBuildingAssets = require("./public/buildingAssets");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,7 +11,31 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-nano";
 const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1-mini";
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const OPENAI_IMAGES_API_URL = "https://api.openai.com/v1/images/generations";
+const USE_GENERATION_FALLBACKS = process.env.USE_GENERATION_FALLBACKS === "true";
+const MAX_LEVEL_GENERATION_ATTEMPTS = 3;
 const itemImageCache = new Map();
+const availableBuildingAssets = Object.fromEntries(
+  Object.entries(configuredBuildingAssets).filter(([locationId, asset]) => {
+    const relativeAssetPath = String(asset.src || "").replace(/^[/\\]+/, "");
+    const assetExists = fs.existsSync(path.join(__dirname, "public", relativeAssetPath));
+
+    if (!assetExists) {
+      console.warn(`Building asset ${locationId} was ignored because ${asset.src} does not exist.`);
+    }
+
+    return assetExists;
+  })
+);
+const availableBuildingLocationIds = Object.freeze(Object.keys(availableBuildingAssets));
+const availableBuildingLocationIdSet = new Set(availableBuildingLocationIds);
+
+if (availableBuildingLocationIds.length === 0) {
+  throw new Error("No usable PNG building assets were found in public/assets/buildings.");
+}
+
+function onlyAvailableBuildingLocations(locationIds) {
+  return locationIds.filter((locationId) => availableBuildingLocationIdSet.has(locationId));
+}
 
 const evaluationSchema = {
   type: "object",
@@ -125,18 +151,7 @@ const worldModel = {
     "post_office"
   ],
   locationTypes: ["building", "stand", "park", "station", "shop", "service"],
-  locations: [
-    "street",
-    "drink_stand",
-    "supermarket",
-    "cafe",
-    "restaurant",
-    "park",
-    "bus_stop",
-    "hotel",
-    "clothing_store",
-    "post_office"
-  ],
+  locations: availableBuildingLocationIds,
   npcs: [
     "vendor",
     "cashier",
@@ -183,32 +198,76 @@ const worldModel = {
   ],
   scenarios: [
     {
-      id: "street_services",
-      allowedLocations: ["street", "bus_stop", "post_office", "hotel", "park"],
-      allowedNpcs: ["passerby", "bus_driver", "postal_worker", "receptionist", "carlos"],
-      allowedLearningGoals: ["ask_directions", "ask_for_help", "greeting", "check_in_hotel", "give_item"],
-      allowedItems: ["billete", "dinero", "sello", "postal", "llave", "tarjeta", "limonada"]
+      id: "street",
+      scenarioId: "street",
+      allowedLocations: onlyAvailableBuildingLocations(["park", "bus_stop", "drink_stand"]),
+      allowedNpcs: ["passerby", "carlos", "bus_driver"],
+      allowedLearningGoals: ["introduce_yourself", "ask_directions", "ask_for_help", "greeting", "give_item"],
+      allowedItems: ["agua", "billete", "tarjeta"]
     },
     {
-      id: "shops_and_food",
-      allowedLocations: ["drink_stand", "supermarket", "cafe", "restaurant", "clothing_store"],
-      allowedNpcs: ["vendor", "cashier", "waiter", "barista", "shop_assistant"],
-      allowedLearningGoals: ["order_food", "order_drink", "buy_food", "ask_price", "greeting"],
-      allowedItems: [
-        "limonada",
-        "agua",
-        "pan",
-        "cafe",
-        "manzana",
-        "dinero",
-        "camiseta",
-        "zapatos",
-        "chaqueta",
-        "ensalada",
-        "queso",
-        "bocadillo",
-        "platano"
-      ]
+      id: "supermarket",
+      scenarioId: "supermarket",
+      allowedLocations: onlyAvailableBuildingLocations(["supermarket", "park", "drink_stand"]),
+      allowedNpcs: ["cashier", "shop_assistant", "passerby", "carlos"],
+      allowedLearningGoals: ["buy_food", "ask_price", "ask_for_help", "greeting", "give_item"],
+      allowedItems: ["pan", "manzana", "dinero", "tarjeta", "ensalada", "queso", "bocadillo", "platano"]
+    },
+    {
+      id: "cafe",
+      scenarioId: "cafe",
+      allowedLocations: onlyAvailableBuildingLocations(["cafe", "park", "supermarket"]),
+      allowedNpcs: ["barista", "passerby", "carlos"],
+      allowedLearningGoals: ["order_food", "order_drink", "ask_price", "greeting", "give_item"],
+      allowedItems: ["cafe", "agua", "bocadillo", "dinero", "tarjeta"]
+    },
+    {
+      id: "restaurant",
+      scenarioId: "restaurant",
+      allowedLocations: onlyAvailableBuildingLocations(["restaurant", "park", "cafe"]),
+      allowedNpcs: ["waiter", "passerby", "carlos"],
+      allowedLearningGoals: ["order_food", "order_drink", "ask_price", "greeting", "give_item"],
+      allowedItems: ["ensalada", "queso", "bocadillo", "agua", "cafe", "dinero", "tarjeta"]
+    },
+    {
+      id: "park",
+      scenarioId: "park",
+      allowedLocations: onlyAvailableBuildingLocations(["park", "drink_stand", "bus_stop"]),
+      allowedNpcs: ["carlos", "passerby", "vendor"],
+      allowedLearningGoals: ["introduce_yourself", "greeting", "ask_directions", "ask_for_help", "give_item"],
+      allowedItems: ["agua", "limonada", "manzana", "bocadillo"]
+    },
+    {
+      id: "bus_stop",
+      scenarioId: "bus_stop",
+      allowedLocations: onlyAvailableBuildingLocations(["bus_stop", "hotel", "park"]),
+      allowedNpcs: ["bus_driver", "passerby", "receptionist"],
+      allowedLearningGoals: ["ask_directions", "ask_for_help", "greeting", "give_item"],
+      allowedItems: ["billete", "tarjeta", "llave"]
+    },
+    {
+      id: "hotel",
+      scenarioId: "hotel",
+      allowedLocations: onlyAvailableBuildingLocations(["hotel", "bus_stop", "cafe"]),
+      allowedNpcs: ["receptionist", "passerby", "bus_driver"],
+      allowedLearningGoals: ["introduce_yourself", "ask_directions", "check_in_hotel", "ask_for_help", "greeting"],
+      allowedItems: ["llave", "tarjeta", "billete"]
+    },
+    {
+      id: "clothing_store",
+      scenarioId: "clothing_store",
+      allowedLocations: onlyAvailableBuildingLocations(["clothing_store", "park", "cafe"]),
+      allowedNpcs: ["shop_assistant", "passerby", "carlos"],
+      allowedLearningGoals: ["ask_price", "ask_for_help", "greeting", "give_item"],
+      allowedItems: ["camiseta", "zapatos", "chaqueta", "dinero", "tarjeta"]
+    },
+    {
+      id: "post_office",
+      scenarioId: "post_office",
+      allowedLocations: onlyAvailableBuildingLocations(["post_office", "park", "bus_stop"]),
+      allowedNpcs: ["postal_worker", "passerby", "carlos"],
+      allowedLearningGoals: ["ask_price", "ask_for_help", "greeting", "give_item"],
+      allowedItems: ["sello", "postal", "dinero", "tarjeta"]
     }
   ]
 };
@@ -398,7 +457,8 @@ const environmentSchema = {
         required: ["id", "type", "labelGerman", "x", "width", "theme"],
         properties: {
           id: {
-            type: "string"
+            type: "string",
+            enum: worldModel.locations
           },
           type: {
             type: "string",
@@ -594,7 +654,10 @@ const levelSchema = {
       }
     },
     npcs: environmentSchema.properties.npcs,
-    items: environmentSchema.properties.items,
+    items: {
+      ...environmentSchema.properties.items,
+      minItems: 0
+    },
     tasks: {
       type: "array",
       minItems: 2,
@@ -605,6 +668,24 @@ const levelSchema = {
   }
 };
 
+function createLevelSchemaForScenario(scenario) {
+  const schema = JSON.parse(JSON.stringify(levelSchema));
+  const taskProperties = schema.properties.tasks.items.properties;
+
+  schema.properties.scenarioId.enum = [scenario.scenarioId];
+  schema.properties.locations.items.properties.id.enum = scenario.allowedLocations;
+  schema.properties.npcs.items.properties.id.enum = scenario.allowedNpcs;
+  schema.properties.items.items.properties.id.enum = scenario.allowedItems;
+  taskProperties.locationId.enum = scenario.allowedLocations;
+  taskProperties.npcId.enum = scenario.allowedNpcs;
+
+  for (const itemField of ["rewardItem", "requiredItem", "removeItemOnSuccess"]) {
+    taskProperties[itemField].enum = [...scenario.allowedItems, null];
+  }
+
+  return schema;
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -614,6 +695,14 @@ app.get("/api/health", (req, res) => {
     message: "Spanish Street Quest server läuft."
   });
 });
+
+function sendGenerationUnavailable(res, type, message = "KI-Generierung konnte nicht abgeschlossen werden.") {
+  return res.status(503).json({
+    error: "generation_unavailable",
+    type,
+    message
+  });
+}
 
 function normalizeAnswer(answer) {
   return String(answer)
@@ -1364,6 +1453,78 @@ function assertVisibleTextDoesNotRevealSolution(fieldName, value, expectedExampl
   }
 }
 
+function sanitizeVisibleText(fieldName, value, expectedExamples, fallbackText) {
+  const candidate = String(value || fallbackText);
+
+  try {
+    assertVisibleTextDoesNotRevealSolution(fieldName, candidate, expectedExamples);
+    return candidate;
+  } catch (error) {
+    console.warn(`Sanitized generated level text in ${fieldName}:`, error.message);
+    return fallbackText;
+  }
+}
+
+function getSafeTaskInstruction(task) {
+  const intent = normalizeForSolutionLeakCheck(task.expectedIntent);
+
+  if (intent.includes("preis") || intent.includes("cuanto") || intent.includes("cuesta")) {
+    return "Frage nach dem Preis.";
+  }
+
+  if (intent.includes("weg") || intent.includes("richtung") || intent.includes("finden")) {
+    return "Frage nach dem Weg.";
+  }
+
+  if (intent.includes("hotel") || intent.includes("eincheck")) {
+    return "Melde dich im Hotel an.";
+  }
+
+  if (intent.includes("vorstell") || intent.includes("name")) {
+    return "Stelle dich kurz vor.";
+  }
+
+  if (intent.includes("begru") || intent.includes("hallo")) {
+    return "Begrüße die Person.";
+  }
+
+  if (intent.includes("hilfe") || intent.includes("helfen")) {
+    return "Bitte um Hilfe.";
+  }
+
+  if (intent.includes("gib") || intent.includes("ueberg") || intent.includes("bring")) {
+    return "Überreiche den passenden Gegenstand.";
+  }
+
+  if (intent.includes("kauf")) {
+    return "Kaufe den passenden Gegenstand.";
+  }
+
+  if (intent.includes("bestell")) {
+    return "Bestelle etwas Passendes.";
+  }
+
+  return "Reagiere mit einem kurzen spanischen Satz.";
+}
+
+function getSafeNpcLine(task) {
+  const intent = normalizeForSolutionLeakCheck(task.expectedIntent);
+
+  if (intent.includes("vorstell") || intent.includes("name")) {
+    return "Hola, ¿cómo te llamas?";
+  }
+
+  if (intent.includes("gib") || intent.includes("ueberg") || intent.includes("bring")) {
+    return "Hola, ¿tienes algo para mí?";
+  }
+
+  if (intent.includes("bestell") || intent.includes("kauf")) {
+    return "Hola, ¿qué deseas?";
+  }
+
+  return "Hola, ¿en qué puedo ayudarte?";
+}
+
 function getSafeVocabularyExample(entry) {
   const spanishTerm = String(entry.es || "").trim();
 
@@ -1424,6 +1585,10 @@ function normalizeEnvironment(environment) {
 
   if (locations.length < 1) {
     throw new Error("Generated environment has no locations.");
+  }
+
+  if (locations.some((location) => !availableBuildingLocationIdSet.has(location.id))) {
+    throw new Error("Generated environment references a location without a PNG building asset.");
   }
 
   const locationIds = new Set(locations.map((location) => location.id));
@@ -1509,6 +1674,54 @@ function normalizeEnvironment(environment) {
   };
 }
 
+function validateLevelTaskFlow(tasks, items) {
+  const taskIds = new Set(tasks.map((task) => task.taskId));
+
+  if (taskIds.size !== tasks.length) {
+    throw new Error("Generated level contains duplicate task IDs.");
+  }
+
+  const referencedItemIds = new Set(
+    tasks.flatMap((task) => [task.rewardItem, task.requiredItem, task.removeItemOnSuccess].filter(Boolean))
+  );
+
+  if (items.some((item) => !referencedItemIds.has(item.id))) {
+    throw new Error("Generated level contains an item that is unrelated to its task flow.");
+  }
+
+  const availableItems = new Set();
+
+  tasks.forEach((task, index) => {
+    if (task.requiredItem && !availableItems.has(task.requiredItem)) {
+      throw new Error(`Generated level task ${task.taskId} requires an item that was not earned earlier.`);
+    }
+
+    if (task.removeItemOnSuccess && !availableItems.has(task.removeItemOnSuccess)) {
+      throw new Error(`Generated level task ${task.taskId} removes an item that was not earned earlier.`);
+    }
+
+    if (task.rewardItem && index < tasks.length - 1) {
+      const laterTasks = tasks.slice(index + 1);
+      const itemSupportsLaterTask = laterTasks.some(
+        (laterTask) =>
+          laterTask.requiredItem === task.rewardItem || laterTask.removeItemOnSuccess === task.rewardItem
+      );
+
+      if (!itemSupportsLaterTask) {
+        throw new Error(`Generated level reward from task ${task.taskId} is not used later in the level.`);
+      }
+    }
+
+    if (task.rewardItem) {
+      availableItems.add(task.rewardItem);
+    }
+
+    if (task.removeItemOnSuccess) {
+      availableItems.delete(task.removeItemOnSuccess);
+    }
+  });
+}
+
 function normalizeLevel(level, scenario = null) {
   if (!level || typeof level !== "object") {
     throw new Error("Generated level is not an object.");
@@ -1518,7 +1731,7 @@ function normalizeLevel(level, scenario = null) {
     throw new Error("Generated level contains an invalid scenarioId.");
   }
 
-  if (scenario && !scenario.allowedLocations.includes(level.scenarioId)) {
+  if (scenario && level.scenarioId !== scenario.scenarioId) {
     throw new Error("Generated level contains a scenarioId outside the selected scenario.");
   }
 
@@ -1552,6 +1765,10 @@ function normalizeLevel(level, scenario = null) {
 
   if (locations.length < 1) {
     throw new Error("Generated level has no relevant locations.");
+  }
+
+  if (locations.some((location) => !availableBuildingLocationIdSet.has(location.id))) {
+    throw new Error("Generated level references a location without a PNG building asset.");
   }
 
   if (scenario && scenario.allowedLocations.length > 1 && locations.length < 2) {
@@ -1596,22 +1813,55 @@ function normalizeLevel(level, scenario = null) {
   }
 
   const npcIds = new Set(npcs.map((npc) => npc.id));
-  const items = Array.isArray(level.items)
-    ? level.items
-        .slice(0, 5)
-        .filter((item) => worldModel.items.includes(item.id))
-        .filter((item) => !scenario || scenario.allowedItems.includes(item.id))
-        .map((item) => ({
-          id: item.id,
-          nameGerman: String(item.nameGerman || item.id),
-          nameSpanish: String(item.nameSpanish || item.id),
-          category: String(item.category || "item")
-        }))
-    : [];
-  const itemIds = new Set(items.map((item) => item.id));
+  const items = [];
+  const itemIds = new Set();
 
-  if (itemIds.size !== items.length) {
-    throw new Error("Generated level contains duplicate item IDs.");
+  for (const item of Array.isArray(level.items) ? level.items.slice(0, 5) : []) {
+    const isAllowedItem =
+      worldModel.items.includes(item.id) && (!scenario || scenario.allowedItems.includes(item.id));
+
+    if (!isAllowedItem || itemIds.has(item.id)) {
+      continue;
+    }
+
+    itemIds.add(item.id);
+    items.push({
+      id: item.id,
+      nameGerman: String(item.nameGerman || item.id),
+      nameSpanish: String(item.nameSpanish || item.id),
+      category: String(item.category || "item")
+    });
+  }
+
+  const referencedItemIds = new Set(
+    (Array.isArray(level.tasks) ? level.tasks : []).flatMap((task) =>
+      [task.rewardItem, task.requiredItem, task.removeItemOnSuccess].filter(Boolean)
+    )
+  );
+
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (!referencedItemIds.has(items[index].id)) {
+      itemIds.delete(items[index].id);
+      items.splice(index, 1);
+    }
+  }
+
+  for (const itemId of referencedItemIds) {
+    const isAllowedItem =
+      worldModel.items.includes(itemId) && (!scenario || scenario.allowedItems.includes(itemId));
+
+    if (!isAllowedItem || itemIds.has(itemId) || items.length >= 5) {
+      continue;
+    }
+
+    const itemName = String(itemId).replace(/_/g, " ");
+    itemIds.add(itemId);
+    items.push({
+      id: itemId,
+      nameGerman: itemName,
+      nameSpanish: itemName,
+      category: "item"
+    });
   }
 
   const tasks = Array.isArray(level.tasks)
@@ -1662,6 +1912,8 @@ function normalizeLevel(level, scenario = null) {
     throw new Error("Generated level must contain 2-3 tasks.");
   }
 
+  validateLevelTaskFlow(tasks, items);
+
   const taskLocationIds = new Set(tasks.map((task) => task.locationId));
   const taskNpcIds = new Set(tasks.map((task) => task.npcId));
 
@@ -1680,38 +1932,59 @@ function normalizeLevel(level, scenario = null) {
   }
 
   const expectedExamples = tasks.flatMap((task) => task.expectedExamples);
-
-  assertVisibleTextDoesNotRevealSolution("titleGerman", level.titleGerman, expectedExamples);
-  assertVisibleTextDoesNotRevealSolution("descriptionGerman", level.descriptionGerman, expectedExamples);
+  const safeTitleGerman = sanitizeVisibleText(
+    "titleGerman",
+    level.titleGerman,
+    expectedExamples,
+    "Ein Tag in der Stadt"
+  );
+  const safeDescriptionGerman = sanitizeVisibleText(
+    "descriptionGerman",
+    level.descriptionGerman,
+    expectedExamples,
+    "Erledige mehrere kurze Aufgaben in dieser Alltagsszene."
+  );
   vocabularyPreview = sanitizeVocabularyPreview(vocabularyPreview, expectedExamples);
-
-  for (const task of tasks) {
-    assertVisibleTextDoesNotRevealSolution(`tasks.${task.taskId}.titleGerman`, task.titleGerman, task.expectedExamples);
-    assertVisibleTextDoesNotRevealSolution(
+  const safeTasks = tasks.map((task) => ({
+    ...task,
+    titleGerman: sanitizeVisibleText(
+      `tasks.${task.taskId}.titleGerman`,
+      task.titleGerman,
+      task.expectedExamples,
+      `Aufgabe ${task.order}`
+    ),
+    instructionGerman: sanitizeVisibleText(
       `tasks.${task.taskId}.instructionGerman`,
       task.instructionGerman,
-      task.expectedExamples
-    );
-    assertVisibleTextDoesNotRevealSolution(`tasks.${task.taskId}.npcSpanish`, task.npcSpanish, task.expectedExamples);
-    assertVisibleTextDoesNotRevealSolution(
+      task.expectedExamples,
+      getSafeTaskInstruction(task)
+    ),
+    npcSpanish: sanitizeVisibleText(
+      `tasks.${task.taskId}.npcSpanish`,
+      task.npcSpanish,
+      task.expectedExamples,
+      getSafeNpcLine(task)
+    ),
+    successMessageGerman: sanitizeVisibleText(
       `tasks.${task.taskId}.successMessageGerman`,
       task.successMessageGerman,
-      task.expectedExamples
-    );
-  }
+      task.expectedExamples,
+      "Gut gemacht!"
+    )
+  }));
 
   return {
     levelId: String(level.levelId || `level_${Date.now()}`),
     scenarioId: level.scenarioId,
-    titleGerman: String(level.titleGerman || "Dynamisches Level"),
-    descriptionGerman: String(level.descriptionGerman || ""),
+    titleGerman: safeTitleGerman,
+    descriptionGerman: safeDescriptionGerman,
     backgroundTheme: String(level.backgroundTheme || "modern_city"),
     playerStartX: clampNumber(level.playerStartX, 20, 900, 120),
     vocabularyPreview,
     locations,
     npcs,
     items,
-    tasks,
+    tasks: safeTasks,
     summaryGerman: String(level.summaryGerman || "Level abgeschlossen!")
   };
 }
@@ -1772,9 +2045,80 @@ function normalizeGeneratedQuest(quest, scenario) {
   };
 }
 
-function selectScenario() {
-  const randomIndex = Math.floor(Math.random() * worldModel.scenarios.length);
-  return worldModel.scenarios[randomIndex];
+function getSafeLevelGenerationContext(requestBody = {}) {
+  const recentScenarioIds = Array.isArray(requestBody.recentScenarioIds)
+    ? requestBody.recentScenarioIds
+        .filter((scenarioId) => worldModel.scenarioIds.includes(scenarioId))
+        .slice(0, 4)
+    : [];
+  const recentTaskIntents = Array.isArray(requestBody.recentTaskIntents)
+    ? requestBody.recentTaskIntents
+        .map((intent) => String(intent || "").trim().slice(0, 160))
+        .filter(Boolean)
+        .slice(0, 8)
+    : [];
+
+  return {
+    recentScenarioIds: [...new Set(recentScenarioIds)],
+    recentTaskIntents
+  };
+}
+
+function selectScenario(excludedScenarioIds = []) {
+  const excludedIds = new Set(excludedScenarioIds);
+  const viableScenarios = worldModel.scenarios.filter((scenario) => scenario.allowedLocations.length >= 2);
+  const availableScenarios = viableScenarios.filter(
+    (scenario) => !excludedIds.has(scenario.scenarioId)
+  );
+  const scenarioPool = availableScenarios.length > 0 ? availableScenarios : viableScenarios;
+
+  if (scenarioPool.length === 0) {
+    throw new Error("At least two PNG building assets are required to generate a level.");
+  }
+
+  const randomIndex = Math.floor(Math.random() * scenarioPool.length);
+
+  return scenarioPool[randomIndex];
+}
+
+function selectLearningFocus(scenario, recentTaskIntents = []) {
+  const recentIntentText = normalizeForSolutionLeakCheck(recentTaskIntents.join(" "));
+  const goalKeywords = {
+    introduce_yourself: ["introduce_yourself", "vorstell", "name"],
+    order_food: ["order_food", "essen", "gericht", "speise"],
+    order_drink: ["order_drink", "getrank", "trinken", "limonade", "wasser", "kaffee"],
+    buy_food: ["buy_food", "lebensmittel", "brot", "obst"],
+    ask_price: ["ask_price", "preis", "kostet"],
+    ask_directions: ["ask_directions", "weg", "richtung", "wo ist"],
+    check_in_hotel: ["check_in_hotel", "hotel", "eincheck", "reservierung"],
+    ask_for_help: ["ask_for_help", "hilfe", "helfen"],
+    greeting: ["greeting", "begru", "hallo"],
+    give_item: ["give_item", "gib", "geb", "uberg", "bring"]
+  };
+  const unusedGoals = scenario.allowedLearningGoals.filter((goal) => {
+    const keywords = goalKeywords[goal] || [goal];
+    return !keywords.some((keyword) => recentIntentText.includes(keyword));
+  });
+  const goalPool = unusedGoals.length > 0 ? unusedGoals : scenario.allowedLearningGoals;
+
+  return goalPool[Math.floor(Math.random() * goalPool.length)];
+}
+
+function getStoryPattern(learningFocus) {
+  const storyPatterns = {
+    introduce_yourself: "Begegne einer Person, stelle dich vor und nutze die neue Bekanntschaft für den nächsten Schritt.",
+    order_food: "Finde den passenden Ort, bestelle etwas und verwende oder bringe die Bestellung anschließend weiter.",
+    order_drink: "Finde den passenden Ort, bestelle ein Getränk und verwende oder bringe es anschließend weiter.",
+    buy_food: "Kläre zuerst, was gebraucht wird, kaufe das Lebensmittel und bringe es zum passenden Ziel.",
+    ask_price: "Finde einen Gegenstand, frage nach dem Preis und triff danach eine passende Kaufentscheidung.",
+    ask_directions: "Frage zuerst nach dem Weg und gehe danach zum genannten Ziel, um dort etwas zu erledigen.",
+    check_in_hotel: "Komme am Hotel an, kläre den Check-in und nutze die erhaltene Information oder den Gegenstand.",
+    ask_for_help: "Stoße auf ein kleines Alltagsproblem, bitte um Hilfe und setze die erhaltene Hilfe am nächsten Ort um.",
+    greeting: "Begrüße eine Person und führe die Begegnung mit einer einfachen passenden Bitte weiter.",
+    give_item: "Besorge oder erhalte zuerst einen Gegenstand und überreiche ihn anschließend der richtigen Person."
+  };
+
+  return storyPatterns[learningFocus] || "Verbinde alle Aufgaben zu einer kurzen, nachvollziehbaren Alltagssituation.";
 }
 
 function getDummyHint(questContext, hintLevel = 1) {
@@ -1896,7 +2240,8 @@ function buildEnvironmentPrompt() {
     "Du bist der AI Game Director für Spanish Street Quest.",
     "Erzeuge genau eine vollständige A1-Spielumgebung mit Orten, NPCs, Items und einer passenden Quest.",
     "Antworte ausschließlich mit JSON, das exakt dem Schema entspricht.",
-    "Nutze nur erlaubte scenarioIds, location types, NPC IDs, learningGoals und Items aus dem World Model.",
+    "Nutze nur erlaubte scenarioIds, locationIds, location types, NPC IDs, learningGoals und Items aus dem World Model.",
+    "Jede locationId entspricht einem vorhandenen PNG-Asset. Erfinde keine weiteren Orte oder Gebäude.",
     "locations müssen konkrete Szenenobjekte sein. quest.locationId muss exakt eine id aus locations sein.",
     "quest.npcId muss exakt eine id aus npcs sein. Genau dieser NPC soll role quest_npc haben.",
     "successReward.item muss null sein oder exakt eine id aus items sein.",
@@ -1907,6 +2252,7 @@ function buildEnvironmentPrompt() {
     "",
     `World Model: ${JSON.stringify({
       scenarioIds: worldModel.scenarioIds,
+      locationIds: worldModel.locations,
       locationTypes: worldModel.locationTypes,
       npcs: worldModel.npcs,
       learningGoals: worldModel.learningGoals,
@@ -1915,8 +2261,9 @@ function buildEnvironmentPrompt() {
   ].join("\n");
 }
 
-function buildLevelPrompt(scenario) {
-  const allowedScenarioIds = scenario.allowedLocations.filter((location) => worldModel.scenarioIds.includes(location));
+function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null) {
+  const allowedScenarioIds = [scenario.scenarioId];
+  const storyPattern = getStoryPattern(learningFocus);
   const allowedWorldFrame = {
     scenarioFrameId: scenario.id,
     scenarioIds: allowedScenarioIds,
@@ -1924,7 +2271,9 @@ function buildLevelPrompt(scenario) {
     locationTypes: worldModel.locationTypes,
     npcs: scenario.allowedNpcs,
     learningGoals: scenario.allowedLearningGoals,
-    items: scenario.allowedItems
+    items: scenario.allowedItems,
+    primaryLearningGoal: learningFocus,
+    storyPattern
   };
 
   return [
@@ -1934,15 +2283,29 @@ function buildLevelPrompt(scenario) {
     "Nutze ausschließlich IDs aus dem angegebenen erlaubten Szenario-Rahmen.",
     "level.scenarioId muss aus scenarioIds im erlaubten Szenario-Rahmen stammen.",
     "locations[].id muss aus locationIds im erlaubten Szenario-Rahmen stammen.",
+    "Jede erlaubte locationId besitzt ein festes PNG-Asset. Erfinde keine weiteren Gebäude, Orte oder IDs.",
     "npcs[].id muss aus npcs im erlaubten Szenario-Rahmen stammen.",
     "items[].id muss aus items im erlaubten Szenario-Rahmen stammen.",
     "Nimm in items nur Dinge auf, die in tasks als rewardItem, requiredItem oder removeItemOnSuccess gebraucht werden.",
     "Bevorzuge abwechslungsreiche Alltagsziele aus learningGoals. Nutze order_drink nur, wenn es wirklich zum Szenario passt.",
+    `Das primaere Lernziel dieses Levels ist ${learningFocus}. Mindestens eine Aufgabe muss dieses Ziel umsetzen.`,
+    "Vermeide inhaltliche Wiederholungen der zuletzt erzeugten Aufgaben.",
+    `Zuletzt verwendete Aufgabenabsichten: ${JSON.stringify(generationContext.recentTaskIntents || [])}`,
     "Das Level besteht aus einer einfachen Umgebung, einer Vokabel-Vorschau und 2-3 kurzen Aufgaben.",
-    "Jedes Level muss eine kleine Handlungskette haben: gehe zu Station A, bekomme oder kaufe etwas, gehe zu Station B, nutze oder gib es weiter.",
+    "Jedes Level muss eine kleine Handlungskette mit mindestens zwei Stationen haben.",
+    `Nutze diesen Handlungsbogen als roten Faden: ${storyPattern}`,
+    "descriptionGerman beschreibt die Ausgangssituation und genau ein gemeinsames Levelziel, ohne eine Lösung vorzugeben.",
+    "Jede Aufgabe muss ein notwendiger nächster Schritt für dieses gemeinsame Ziel sein und logisch aus der vorherigen Aufgabe folgen.",
+    "Erzeuge keine lose Sammlung voneinander unabhängiger Sprachübungen.",
+    "Der NPC-Dialog einer späteren Aufgabe muss zur Handlung passen, die in den vorherigen Aufgaben entstanden ist.",
+    "summaryGerman schließt dasselbe gemeinsame Levelziel ab.",
+    "Variiere die Aktionen passend zum Lernziel: begruessen, sich vorstellen, nach Weg, Preis oder Hilfe fragen, bestellen, kaufen, einchecken oder einen Gegenstand uebergeben.",
+    "Nutze nicht in jedem Level dieselbe Kaufen-und-Weitergeben-Abfolge.",
     "Nutze bei 2-3 Aufgaben mindestens zwei verschiedene task.locationId und mindestens zwei verschiedene task.npcId.",
     "Vermeide Levels, in denen der Spieler mehrfach am selben Ort mit derselben Person interagiert.",
     "Wenn es sinnvoll ist, soll mindestens eine Aufgabe ein rewardItem geben und eine spätere Aufgabe dieses Item als requiredItem oder removeItemOnSuccess nutzen.",
+    "Ein requiredItem oder removeItemOnSuccess muss immer in einer früheren Aufgabe als rewardItem vergeben worden sein.",
+    "Ein rewardItem aus einer Aufgabe vor dem letzten Schritt muss in einer späteren Aufgabe benötigt oder entfernt werden.",
     "NPCs dürfen während des Levels erscheinen oder verschwinden: appearsAtTask und leavesAfterTask sind für jeden NPC Pflichtfelder.",
     "Fuer dauerhaft sichtbare NPCs nutze appearsAtTask 1 und leavesAfterTask null.",
     "Der aktive NPC einer Aufgabe muss bei dieser Aufgabe sichtbar sein.",
@@ -2374,14 +2737,15 @@ async function generateEnvironmentWithOpenAI() {
   }
 }
 
-async function generateLevelWithOpenAI() {
+async function generateLevelWithOpenAI(scenario, generationContext = {}) {
   if (!process.env.OPENAI_API_KEY) {
     return null;
   }
 
-  const scenario = selectScenario();
+  const learningFocus = selectLearningFocus(scenario, generationContext.recentTaskIntents);
+  const scenarioLevelSchema = createLevelSchemaForScenario(scenario);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 14000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
     const response = await fetch(OPENAI_API_URL, {
@@ -2393,25 +2757,27 @@ async function generateLevelWithOpenAI() {
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        input: buildLevelPrompt(scenario),
+        input: buildLevelPrompt(scenario, generationContext, learningFocus),
         text: {
           format: {
             type: "json_schema",
             name: "spanish_street_quest_level",
             strict: true,
-            schema: levelSchema
+            schema: scenarioLevelSchema
           }
         }
       })
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
+      const error = new Error(`OpenAI API error: ${response.status}`);
+      error.retryable = response.status === 429 || response.status >= 500;
+      throw error;
     }
 
     const responseData = await response.json();
     const outputText = extractOutputText(responseData);
-    const parsedLevel = parseStructuredOutput(outputText, levelSchema, "level");
+    const parsedLevel = parseStructuredOutput(outputText, scenarioLevelSchema, "level");
 
     return normalizeLevel(parsedLevel, scenario);
   } finally {
@@ -2629,6 +2995,8 @@ app.post("/api/generate-item-image", async (req, res) => {
 });
 
 app.post("/api/generate-quest", async (req, res) => {
+  let generationError = null;
+
   try {
     const generatedQuest = await generateQuestWithOpenAI();
 
@@ -2636,13 +3004,25 @@ app.post("/api/generate-quest", async (req, res) => {
       return res.json(generatedQuest);
     }
   } catch (error) {
-    console.error("OpenAI quest generation failed, using fallback quest:", error.message);
+    generationError = error;
+    console.error("OpenAI quest generation failed:", error.message);
   }
 
-  return res.json(getFallbackGeneratedQuest());
+  if (USE_GENERATION_FALLBACKS) {
+    console.warn("Using fallback quest because USE_GENERATION_FALLBACKS=true.");
+    return res.json(getFallbackGeneratedQuest());
+  }
+
+  return sendGenerationUnavailable(
+    res,
+    "quest",
+    generationError ? generationError.message : "Keine KI-Quest generiert. Fallbacks sind deaktiviert."
+  );
 });
 
 app.post("/api/generate-environment", async (req, res) => {
+  let generationError = null;
+
   try {
     const generatedEnvironment = await generateEnvironmentWithOpenAI();
 
@@ -2650,24 +3030,65 @@ app.post("/api/generate-environment", async (req, res) => {
       return res.json(generatedEnvironment);
     }
   } catch (error) {
-    console.error("OpenAI environment generation failed, using fallback environment:", error.message);
+    generationError = error;
+    console.error("OpenAI environment generation failed:", error.message);
   }
 
-  return res.json(getFallbackEnvironment());
+  if (USE_GENERATION_FALLBACKS) {
+    console.warn("Using fallback environment because USE_GENERATION_FALLBACKS=true.");
+    return res.json(getFallbackEnvironment());
+  }
+
+  return sendGenerationUnavailable(
+    res,
+    "environment",
+    generationError ? generationError.message : "Keine KI-Umgebung generiert. Fallbacks sind deaktiviert."
+  );
 });
 
 app.post("/api/generate-level", async (req, res) => {
-  try {
-    const generatedLevel = await generateLevelWithOpenAI();
+  let generationError = null;
+  const generationContext = getSafeLevelGenerationContext(req.body);
+  const excludedScenarioIds = new Set(generationContext.recentScenarioIds);
 
-    if (generatedLevel) {
-      return res.json(generatedLevel);
+  for (let attempt = 1; attempt <= MAX_LEVEL_GENERATION_ATTEMPTS; attempt += 1) {
+    const scenario = selectScenario([...excludedScenarioIds]);
+    excludedScenarioIds.add(scenario.scenarioId);
+
+    try {
+      const generatedLevel = await generateLevelWithOpenAI(scenario, generationContext);
+
+      if (generatedLevel) {
+        console.log(
+          `Generated AI level for scenario ${generatedLevel.scenarioId} on attempt ${attempt}/${MAX_LEVEL_GENERATION_ATTEMPTS}.`
+        );
+        return res.json(generatedLevel);
+      }
+
+      break;
+    } catch (error) {
+      generationError = error;
+      console.error(
+        `OpenAI level generation attempt ${attempt}/${MAX_LEVEL_GENERATION_ATTEMPTS} failed for scenario ${scenario.scenarioId}:`,
+        error.message
+      );
+
+      if (error.retryable === false) {
+        break;
+      }
     }
-  } catch (error) {
-    console.error("OpenAI level generation failed, using fallback level:", error.message);
   }
 
-  return res.json(getFallbackLevel());
+  if (USE_GENERATION_FALLBACKS) {
+    console.warn("Using fallback level because USE_GENERATION_FALLBACKS=true.");
+    return res.json(getFallbackLevel());
+  }
+
+  return sendGenerationUnavailable(
+    res,
+    "level",
+    generationError ? generationError.message : "Kein KI-Level generiert. Fallbacks sind deaktiviert."
+  );
 });
 
 app.listen(PORT, () => {
