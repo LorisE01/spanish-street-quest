@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const configuredBuildingAssets = require("./public/buildingAssets");
 const configuredCharacterAssets = require("./public/characterAssets");
+const configuredLevelCatalog = require("./public/levelCatalog");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,6 +15,8 @@ const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const OPENAI_IMAGES_API_URL = "https://api.openai.com/v1/images/generations";
 const USE_GENERATION_FALLBACKS = process.env.USE_GENERATION_FALLBACKS === "true";
 const MAX_LEVEL_GENERATION_ATTEMPTS = 3;
+const LEVEL_GENERATION_TIMEOUT_MS = 60000;
+const LEVEL_RETRY_DELAY_MS = 500;
 const itemImageCache = new Map();
 const availableBuildingAssets = Object.fromEntries(
   Object.entries(configuredBuildingAssets).filter(([locationId, asset]) => {
@@ -61,6 +64,18 @@ function onlyAvailableBuildingLocations(locationIds) {
 
 function onlyAvailableNpcs(npcIds) {
   return npcIds.filter((npcId) => availableNpcIdSet.has(npcId));
+}
+
+const availableLevelCatalog = Object.freeze(
+  configuredLevelCatalog.filter(
+    (level) =>
+      availableBuildingLocationIdSet.has(level.buildingId) &&
+      availableNpcIdSet.has(level.primaryNpcId)
+  )
+);
+
+if (availableLevelCatalog.length !== configuredLevelCatalog.length) {
+  throw new Error("The level catalog references a missing building or character asset.");
 }
 
 const evaluationSchema = {
@@ -168,6 +183,7 @@ const worldModel = {
   scenarioIds: [
     "street",
     "supermarket",
+    "drink_stand",
     "cafe",
     "restaurant",
     "park",
@@ -215,22 +231,38 @@ const worldModel = {
     {
       id: "street",
       scenarioId: "street",
+      primaryLocationId: "park",
+      primaryNpcId: "passerby",
       allowedLocations: onlyAvailableBuildingLocations(["park", "bus_stop", "drink_stand"]),
       allowedNpcs: onlyAvailableNpcs(["passerby", "carlos", "bus_driver", "tourist"]),
       allowedLearningGoals: ["introduce_yourself", "ask_directions", "ask_for_help", "greeting", "give_item"],
-      allowedItems: ["agua", "billete", "tarjeta"]
+      allowedItems: ["limonada", "agua", "billete", "tarjeta"]
     },
     {
       id: "supermarket",
       scenarioId: "supermarket",
+      primaryLocationId: "supermarket",
+      primaryNpcId: "cashier",
       allowedLocations: onlyAvailableBuildingLocations(["supermarket", "park", "drink_stand"]),
       allowedNpcs: onlyAvailableNpcs(["cashier", "shop_assistant", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["buy_food", "ask_price", "ask_for_help", "greeting", "give_item"],
       allowedItems: ["pan", "manzana", "dinero", "tarjeta", "ensalada", "queso", "bocadillo", "platano"]
     },
     {
+      id: "drink_stand",
+      scenarioId: "drink_stand",
+      primaryLocationId: "drink_stand",
+      primaryNpcId: "vendor",
+      allowedLocations: onlyAvailableBuildingLocations(["drink_stand", "park", "supermarket"]),
+      allowedNpcs: onlyAvailableNpcs(["vendor", "carlos", "passerby", "tourist"]),
+      allowedLearningGoals: ["order_drink", "ask_price", "ask_for_help", "greeting", "give_item"],
+      allowedItems: ["limonada", "agua", "dinero", "tarjeta"]
+    },
+    {
       id: "cafe",
       scenarioId: "cafe",
+      primaryLocationId: "cafe",
+      primaryNpcId: "barista",
       allowedLocations: onlyAvailableBuildingLocations(["cafe", "park", "supermarket"]),
       allowedNpcs: onlyAvailableNpcs(["barista", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["order_food", "order_drink", "ask_price", "greeting", "give_item"],
@@ -239,6 +271,8 @@ const worldModel = {
     {
       id: "restaurant",
       scenarioId: "restaurant",
+      primaryLocationId: "restaurant",
+      primaryNpcId: "waiter",
       allowedLocations: onlyAvailableBuildingLocations(["restaurant", "park", "cafe"]),
       allowedNpcs: onlyAvailableNpcs(["waiter", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["order_food", "order_drink", "ask_price", "greeting", "give_item"],
@@ -247,6 +281,8 @@ const worldModel = {
     {
       id: "park",
       scenarioId: "park",
+      primaryLocationId: "park",
+      primaryNpcId: "park_guard",
       allowedLocations: onlyAvailableBuildingLocations(["park", "drink_stand", "bus_stop"]),
       allowedNpcs: onlyAvailableNpcs(["carlos", "passerby", "vendor", "park_guard", "tourist"]),
       allowedLearningGoals: ["introduce_yourself", "greeting", "ask_directions", "ask_for_help", "give_item"],
@@ -255,6 +291,8 @@ const worldModel = {
     {
       id: "bus_stop",
       scenarioId: "bus_stop",
+      primaryLocationId: "bus_stop",
+      primaryNpcId: "bus_driver",
       allowedLocations: onlyAvailableBuildingLocations(["bus_stop", "hotel", "park"]),
       allowedNpcs: onlyAvailableNpcs(["bus_driver", "passerby", "receptionist", "tourist"]),
       allowedLearningGoals: ["ask_directions", "ask_for_help", "greeting", "give_item"],
@@ -263,14 +301,18 @@ const worldModel = {
     {
       id: "hotel",
       scenarioId: "hotel",
+      primaryLocationId: "hotel",
+      primaryNpcId: "receptionist",
       allowedLocations: onlyAvailableBuildingLocations(["hotel", "bus_stop", "cafe"]),
       allowedNpcs: onlyAvailableNpcs(["receptionist", "passerby", "bus_driver", "tourist"]),
-      allowedLearningGoals: ["introduce_yourself", "ask_directions", "check_in_hotel", "ask_for_help", "greeting"],
+      allowedLearningGoals: ["check_in_hotel", "introduce_yourself", "ask_directions", "ask_for_help", "greeting"],
       allowedItems: ["llave", "tarjeta", "billete"]
     },
     {
       id: "clothing_store",
       scenarioId: "clothing_store",
+      primaryLocationId: "clothing_store",
+      primaryNpcId: "shop_assistant",
       allowedLocations: onlyAvailableBuildingLocations(["clothing_store", "park", "cafe"]),
       allowedNpcs: onlyAvailableNpcs(["shop_assistant", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["ask_price", "ask_for_help", "greeting", "give_item"],
@@ -279,6 +321,8 @@ const worldModel = {
     {
       id: "post_office",
       scenarioId: "post_office",
+      primaryLocationId: "post_office",
+      primaryNpcId: "postal_worker",
       allowedLocations: onlyAvailableBuildingLocations(["post_office", "park", "bus_stop"]),
       allowedNpcs: onlyAvailableNpcs(["postal_worker", "passerby", "carlos", "tourist"]),
       allowedLearningGoals: ["ask_price", "ask_for_help", "greeting", "give_item"],
@@ -286,6 +330,18 @@ const worldModel = {
     }
   ]
 };
+
+for (const level of availableLevelCatalog) {
+  const scenario = worldModel.scenarios.find((entry) => entry.scenarioId === level.scenarioId);
+
+  if (
+    !scenario ||
+    scenario.primaryLocationId !== level.buildingId ||
+    scenario.primaryNpcId !== level.primaryNpcId
+  ) {
+    throw new Error(`Level catalog entry ${level.id} does not match its scenario frame.`);
+  }
+}
 
 const itemChoiceSchema = {
   type: "object",
@@ -566,6 +622,7 @@ const levelTaskSchema = {
     "order",
     "taskType",
     "wordOrder",
+    "sentenceGap",
     "titleGerman",
     "instructionGerman",
     "locationId",
@@ -579,6 +636,7 @@ const levelTaskSchema = {
     "rewardItem",
     "requiredItem",
     "removeItemOnSuccess",
+    "itemSelectionItem",
     "successMessageGerman"
   ],
   properties: {
@@ -586,7 +644,7 @@ const levelTaskSchema = {
     order: { type: "number" },
     taskType: {
       type: "string",
-      enum: ["free_text", "word_order"]
+      enum: ["free_text", "word_order", "sentence_gap"]
     },
     wordOrder: {
       type: ["object", "null"],
@@ -603,6 +661,30 @@ const levelTaskSchema = {
           type: "array",
           minItems: 2,
           maxItems: 10,
+          items: { type: "string" }
+        }
+      }
+    },
+    sentenceGap: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["template", "answers", "inputMode", "wordBank"],
+      properties: {
+        template: { type: "string" },
+        answers: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          items: { type: "string" }
+        },
+        inputMode: {
+          type: "string",
+          enum: ["text", "drag_drop"]
+        },
+        wordBank: {
+          type: "array",
+          minItems: 0,
+          maxItems: 6,
           items: { type: "string" }
         }
       }
@@ -630,6 +712,7 @@ const levelTaskSchema = {
     rewardItem: { type: ["string", "null"], enum: [...worldModel.items, null] },
     requiredItem: { type: ["string", "null"], enum: [...worldModel.items, null] },
     removeItemOnSuccess: { type: ["string", "null"], enum: [...worldModel.items, null] },
+    itemSelectionItem: { type: ["string", "null"], enum: [...worldModel.items, null] },
     successMessageGerman: { type: "string" }
   }
 };
@@ -713,13 +796,15 @@ function createLevelSchemaForScenario(scenario) {
   const taskProperties = schema.properties.tasks.items.properties;
 
   schema.properties.scenarioId.enum = [scenario.scenarioId];
+  schema.properties.locations.minItems = Math.min(2, scenario.allowedLocations.length);
   schema.properties.locations.items.properties.id.enum = scenario.allowedLocations;
+  schema.properties.npcs.minItems = Math.min(2, scenario.allowedNpcs.length);
   schema.properties.npcs.items.properties.id.enum = scenario.allowedNpcs;
   schema.properties.items.items.properties.id.enum = scenario.allowedItems;
   taskProperties.locationId.enum = scenario.allowedLocations;
   taskProperties.npcId.enum = scenario.allowedNpcs;
 
-  for (const itemField of ["rewardItem", "requiredItem", "removeItemOnSuccess"]) {
+  for (const itemField of ["rewardItem", "requiredItem", "removeItemOnSuccess", "itemSelectionItem"]) {
     taskProperties[itemField].enum = [...scenario.allowedItems, null];
   }
 
@@ -819,12 +904,21 @@ function getWorldItemDetails(itemId) {
 }
 
 function getExpectedItemFromRequest(expectedItem, taskContext) {
-  if (expectedItem && typeof expectedItem === "object" && worldModel.items.includes(expectedItem.id)) {
-    return getSafeItem(expectedItem);
+  const scenario = getScenarioById(taskContext?.scenarioId);
+  const allowedItemIds = new Set(scenario?.allowedItems || worldModel.items);
+  const expectedItemId = getValidatedItemSelectionItem(taskContext, allowedItemIds);
+
+  if (!expectedItemId) {
+    return null;
   }
 
-  const expectedItemId =
-    taskContext.expectedItemId || taskContext.removeItemOnSuccess || taskContext.requiredItem || taskContext.rewardItem;
+  if (
+    expectedItem &&
+    typeof expectedItem === "object" &&
+    expectedItem.id === expectedItemId
+  ) {
+    return getSafeItem(expectedItem);
+  }
 
   return getWorldItemDetails(expectedItemId);
 }
@@ -836,25 +930,50 @@ function shuffleItems(items) {
     .map((entry) => entry.item);
 }
 
-function normalizeItemChoices(rawChoices, expectedItem) {
+function getItemChoicePool(taskContext, availableItems, expectedItem) {
+  const expected = getSafeItem(expectedItem);
+  const scenario = getScenarioById(taskContext?.scenarioId);
+  const allowedItemIds = new Set(scenario?.allowedItems || worldModel.items);
+  const safeAvailableItems = (Array.isArray(availableItems) ? availableItems : [])
+    .filter((item) => item && allowedItemIds.has(item.id))
+    .map(getSafeItem);
+  const scenarioItems = [...allowedItemIds].map(getWorldItemDetails);
+
+  return [
+    ...new Map(
+      [expected, ...safeAvailableItems, ...scenarioItems].map((item) => [item.id, item])
+    ).values()
+  ];
+}
+
+function normalizeItemChoices(rawChoices, expectedItem, choicePool) {
   const expected = getSafeItem(expectedItem);
   const choices = Array.isArray(rawChoices?.choices) ? rawChoices.choices : [];
+  const allowedChoices = Array.isArray(choicePool) ? choicePool : [expected];
+  const allowedChoiceIds = new Set(allowedChoices.map((item) => item.id));
   const uniqueChoices = new Map();
 
   uniqueChoices.set(expected.id, expected);
 
   choices.forEach((choice) => {
+    if (!choice || !allowedChoiceIds.has(choice.id)) {
+      return;
+    }
+
     const safeChoice = getSafeItem(choice);
 
-    if (worldModel.items.includes(safeChoice.id) && !uniqueChoices.has(safeChoice.id)) {
+    if (!uniqueChoices.has(safeChoice.id)) {
       uniqueChoices.set(safeChoice.id, safeChoice);
     }
   });
 
-  const fallbackPool = worldModel.items
-    .filter((itemId) => itemId !== expected.id)
-    .map(getWorldItemDetails)
-    .filter((item) => !uniqueChoices.has(item.id));
+  const fallbackPool = allowedChoices
+    .filter((item) => item.id !== expected.id && !uniqueChoices.has(item.id))
+    .sort((firstItem, secondItem) => {
+      const firstMatchesCategory = firstItem.category === expected.category ? 0 : 1;
+      const secondMatchesCategory = secondItem.category === expected.category ? 0 : 1;
+      return firstMatchesCategory - secondMatchesCategory;
+    });
 
   for (const fallbackItem of shuffleItems(fallbackPool)) {
     if (uniqueChoices.size >= 3) {
@@ -869,8 +988,8 @@ function normalizeItemChoices(rawChoices, expectedItem) {
   };
 }
 
-function getDummyItemChoices(expectedItem) {
-  return normalizeItemChoices({ choices: [] }, expectedItem);
+function getDummyItemChoices(expectedItem, choicePool) {
+  return normalizeItemChoices({ choices: [] }, expectedItem, choicePool);
 }
 
 function getFallbackItemImage(item) {
@@ -905,12 +1024,8 @@ function buildItemImagePrompt(item, taskContext = {}) {
     .join(" ");
 }
 
-function buildItemChoicesPrompt(expectedItem, taskContext = {}, availableItems = []) {
+function buildItemChoicesPrompt(expectedItem, taskContext = {}, choicePool = []) {
   const safeExpectedItem = getSafeItem(expectedItem);
-  const safeAvailableItems = Array.isArray(availableItems)
-    ? availableItems.map(getSafeItem).filter((item) => worldModel.items.includes(item.id))
-    : [];
-  const choicePool = [...new Map([...safeAvailableItems, ...worldModel.items.map(getWorldItemDetails)].map((item) => [item.id, item])).values()];
 
   return [
     "Generate item choices for a Spanish learning game interaction dialog.",
@@ -1225,6 +1340,43 @@ function evaluateWordOrderTask(normalizedAnswer, questContext) {
   };
 }
 
+function evaluateSentenceGapTask(normalizedAnswer, questContext) {
+  const expectedExamples = Array.isArray(questContext.expectedExamples) ? questContext.expectedExamples : [];
+  const normalizedExamples = expectedExamples.map(normalizeAnswer).filter(Boolean);
+  const correctedSpanish = String(expectedExamples[0] || "");
+
+  if (normalizedExamples.includes(normalizedAnswer)) {
+    return {
+      result: "correct",
+      isCorrect: true,
+      intentMatched: true,
+      feedbackGerman: "Sehr gut! Du hast alle Lücken passend ergänzt.",
+      correctedSpanish,
+      xpReward: 0,
+      nextAction: "complete_quest",
+      inventoryReward: null,
+      mistakes: []
+    };
+  }
+
+  return {
+    result: "partial",
+    isCorrect: false,
+    intentMatched: true,
+    feedbackGerman: "Fast richtig! Prüfe die eingesetzten Wörter und versuche es noch einmal.",
+    correctedSpanish,
+    xpReward: 0,
+    nextAction: "retry",
+    inventoryReward: null,
+    mistakes: [
+      {
+        type: "sentence_gap",
+        explanationGerman: "Mindestens ein Wort passt noch nicht in die Lücke."
+      }
+    ]
+  };
+}
+
 function getDummyEvaluation(normalizedAnswer, questContext) {
   if (questContext.currentStep === "generated_level_task") {
     return evaluateGeneratedLevelTask(normalizedAnswer, questContext);
@@ -1443,6 +1595,9 @@ function getFallbackLevel() {
       {
         taskId: "order_limonada",
         order: 1,
+        taskType: "free_text",
+        wordOrder: null,
+        sentenceGap: null,
         titleGerman: "Getränk bestellen",
         instructionGerman: "Bestelle ein Getränk.",
         locationId: "drink_stand",
@@ -1456,11 +1611,15 @@ function getFallbackLevel() {
         rewardItem: "limonada",
         requiredItem: null,
         removeItemOnSuccess: null,
+        itemSelectionItem: "limonada",
         successMessageGerman: "Gut gemacht! Die Limonade ist jetzt in deinem Inventar."
       },
       {
         taskId: "give_limonada",
         order: 2,
+        taskType: "free_text",
+        wordOrder: null,
+        sentenceGap: null,
         titleGerman: "Getränk weitergeben",
         instructionGerman: "Gib Carlos das Getränk.",
         locationId: "park",
@@ -1474,6 +1633,7 @@ function getFallbackLevel() {
         rewardItem: null,
         requiredItem: "limonada",
         removeItemOnSuccess: "limonada",
+        itemSelectionItem: "limonada",
         successMessageGerman: "Sehr gut! Du hast Carlos die Limonade gegeben."
       }
     ],
@@ -1622,6 +1782,64 @@ function getSafeNpcLine(task) {
   }
 
   return "Hola, ¿en qué puedo ayudarte?";
+}
+
+function getValidatedItemSelectionItem(task, allowedItemIds) {
+  const taskFlowItems = [
+    task?.removeItemOnSuccess,
+    task?.requiredItem,
+    task?.rewardItem
+  ].filter((itemId) => itemId && allowedItemIds.has(itemId));
+  const explicitItem = task?.itemSelectionItem;
+  const itemSelectionItem = explicitItem && taskFlowItems.includes(explicitItem)
+    ? explicitItem
+    : taskFlowItems[0] || null;
+
+  if (!itemSelectionItem) {
+    return null;
+  }
+
+  const npcText = normalizeForSolutionLeakCheck(task.npcSpanish);
+  const taskText = normalizeForSolutionLeakCheck([
+    task.titleGerman,
+    task.instructionGerman,
+    task.expectedIntent
+  ].join(" "));
+  const npcItemCues = [
+    "cual",
+    "tienes",
+    "traes",
+    "dame",
+    "muestrame",
+    "algo para mi",
+    "quieres beber",
+    "quieres comer",
+    "quieres comprar"
+  ];
+  const taskItemCues = [
+    "gegenstand",
+    "item",
+    "produkt",
+    "getrank",
+    "lebensmittel",
+    "kleidung",
+    "bestell",
+    "kauf",
+    "wahl",
+    "auswahl",
+    "ubergib",
+    "uberreich",
+    "gib",
+    "bring",
+    "zeig",
+    "hat den",
+    "hast den",
+    "besitzt"
+  ];
+  const npcAsksAboutItem = npcItemCues.some((cue) => npcText.includes(cue));
+  const taskRequiresItemAction = taskItemCues.some((cue) => taskText.includes(cue));
+
+  return npcAsksAboutItem || taskRequiresItemAction ? itemSelectionItem : null;
 }
 
 function getSafeVocabularyExample(entry) {
@@ -1777,42 +1995,42 @@ function normalizeEnvironment(environment) {
   };
 }
 
-function validateLevelTaskFlow(tasks, items) {
-  const taskIds = new Set(tasks.map((task) => task.taskId));
+function repairLevelTaskFlow(tasks, items) {
+  const taskIds = new Set();
 
-  if (taskIds.size !== tasks.length) {
-    throw new Error("Generated level contains duplicate task IDs.");
-  }
+  tasks.forEach((task, index) => {
+    if (taskIds.has(task.taskId)) {
+      task.taskId = `${task.taskId}_${index + 1}`;
+    }
 
-  const referencedItemIds = new Set(
-    tasks.flatMap((task) => [task.rewardItem, task.requiredItem, task.removeItemOnSuccess].filter(Boolean))
-  );
+    taskIds.add(task.taskId);
+  });
 
-  if (items.some((item) => !referencedItemIds.has(item.id))) {
-    throw new Error("Generated level contains an item that is unrelated to its task flow.");
-  }
+  tasks.forEach((task, index) => {
+    if (!task.rewardItem || index === tasks.length - 1) {
+      return;
+    }
+
+    const laterTasks = tasks.slice(index + 1);
+    const itemSupportsLaterTask = laterTasks.some(
+      (laterTask) =>
+        laterTask.requiredItem === task.rewardItem || laterTask.removeItemOnSuccess === task.rewardItem
+    );
+
+    if (!itemSupportsLaterTask) {
+      task.rewardItem = null;
+    }
+  });
 
   const availableItems = new Set();
 
-  tasks.forEach((task, index) => {
+  tasks.forEach((task) => {
     if (task.requiredItem && !availableItems.has(task.requiredItem)) {
-      throw new Error(`Generated level task ${task.taskId} requires an item that was not earned earlier.`);
+      task.requiredItem = null;
     }
 
     if (task.removeItemOnSuccess && !availableItems.has(task.removeItemOnSuccess)) {
-      throw new Error(`Generated level task ${task.taskId} removes an item that was not earned earlier.`);
-    }
-
-    if (task.rewardItem && index < tasks.length - 1) {
-      const laterTasks = tasks.slice(index + 1);
-      const itemSupportsLaterTask = laterTasks.some(
-        (laterTask) =>
-          laterTask.requiredItem === task.rewardItem || laterTask.removeItemOnSuccess === task.rewardItem
-      );
-
-      if (!itemSupportsLaterTask) {
-        throw new Error(`Generated level reward from task ${task.taskId} is not used later in the level.`);
-      }
+      task.removeItemOnSuccess = null;
     }
 
     if (task.rewardItem) {
@@ -1822,6 +2040,21 @@ function validateLevelTaskFlow(tasks, items) {
     if (task.removeItemOnSuccess) {
       availableItems.delete(task.removeItemOnSuccess);
     }
+  });
+
+  const referencedItemIds = new Set(
+    tasks.flatMap((task) => [task.rewardItem, task.requiredItem, task.removeItemOnSuccess].filter(Boolean))
+  );
+
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (!referencedItemIds.has(items[index].id)) {
+      items.splice(index, 1);
+    }
+  }
+
+  const remainingItemIds = new Set(items.map((item) => item.id));
+  tasks.forEach((task) => {
+    task.itemSelectionItem = getValidatedItemSelectionItem(task, remainingItemIds);
   });
 }
 
@@ -1866,44 +2099,270 @@ function shuffleWordTiles(tiles) {
   return shuffledTiles;
 }
 
-function normalizeTaskWordOrder(wordOrder, taskType, expectedExamples, taskId) {
-  if (taskType === "free_text") {
+function fillSentenceGapTemplate(template, answers) {
+  let answerIndex = 0;
+
+  return String(template || "").replace(/___/g, () => String(answers[answerIndex++] || ""));
+}
+
+function wordBankContainsAnswers(wordBank, answers) {
+  const bankCounts = new Map();
+  const answerCounts = new Map();
+
+  wordBank.forEach((word) => {
+    const key = normalizeAnswer(word);
+    bankCounts.set(key, (bankCounts.get(key) || 0) + 1);
+  });
+  answers.forEach((word) => {
+    const key = normalizeAnswer(word);
+    answerCounts.set(key, (answerCounts.get(key) || 0) + 1);
+  });
+
+  return [...answerCounts.entries()].every(
+    ([key, count]) => bankCounts.get(key) === count
+  );
+}
+
+function getSpanishWords(value) {
+  return [...String(value || "").matchAll(/[\p{L}\p{N}]+/gu)].map((match) => ({
+    text: match[0],
+    index: match.index,
+    end: match.index + match[0].length
+  }));
+}
+
+function buildSentenceGapWordBank(answers, requiredVocabulary = []) {
+  const wordBank = [...answers];
+  const vocabularyWords = requiredVocabulary.flatMap((entry) =>
+    getSpanishWords(entry).map((word) => word.text)
+  );
+  const simpleDistractors = ["hola", "gracias", "tengo", "quiero", "aquí", "favor"];
+
+  for (const candidate of [...vocabularyWords, ...simpleDistractors]) {
+    const normalizedCandidate = normalizeAnswer(candidate);
+    const alreadyPresent = wordBank.some((word) => normalizeAnswer(word) === normalizedCandidate);
+
+    if (normalizedCandidate && !alreadyPresent) {
+      wordBank.push(candidate);
+    }
+
+    if (wordBank.length >= Math.max(3, answers.length + 2)) {
+      break;
+    }
+  }
+
+  return shuffleWordTiles(wordBank.slice(0, 6));
+}
+
+function recoverSentenceGap(expectedExample, requiredVocabulary, inputMode) {
+  const sentence = String(expectedExample || "").trim();
+  const words = getSpanishWords(sentence);
+
+  if (words.length < 2) {
     return null;
   }
 
-  if (!wordOrder || typeof wordOrder !== "object") {
-    throw new Error(`Generated word-order task ${taskId} has no wordOrder data.`);
+  const requiredWords = new Set(
+    requiredVocabulary
+      .flatMap((entry) => getSpanishWords(entry))
+      .map((word) => normalizeAnswer(word.text))
+  );
+  const commonWords = new Set([
+    "a", "al", "de", "del", "el", "en", "la", "las", "los", "mi", "o", "por", "su", "tu", "un", "una", "y"
+  ]);
+  const preferredIndexes = words
+    .map((word, index) => ({ word, index }))
+    .filter(({ word }) => requiredWords.has(normalizeAnswer(word.text)))
+    .map(({ index }) => index);
+  const contentIndexes = words
+    .map((word, index) => ({ word, index }))
+    .filter(({ word }) => !commonWords.has(normalizeAnswer(word.text)))
+    .map(({ index }) => index);
+  const allIndexes = words.map((_, index) => index);
+  const blankCount = Math.min(words.length - 1, words.length >= 5 && Math.random() < 0.5 ? 2 : 1);
+  const selectedIndexes = [];
+
+  for (const pool of [preferredIndexes, contentIndexes, allIndexes]) {
+    for (const index of shuffleItems(pool)) {
+      if (!selectedIndexes.includes(index)) {
+        selectedIndexes.push(index);
+      }
+
+      if (selectedIndexes.length === blankCount) {
+        break;
+      }
+    }
+
+    if (selectedIndexes.length === blankCount) {
+      break;
+    }
   }
 
-  const tiles = Array.isArray(wordOrder.tiles)
-    ? wordOrder.tiles.map((tile) => String(tile || "").trim()).filter(Boolean)
-    : [];
-  const correctOrder = Array.isArray(wordOrder.correctOrder)
-    ? wordOrder.correctOrder.map((tile) => String(tile || "").trim()).filter(Boolean)
-    : [];
+  const selectedWords = selectedIndexes
+    .sort((firstIndex, secondIndex) => firstIndex - secondIndex)
+    .map((index) => words[index]);
+  const answers = selectedWords.map((word) => word.text);
+  let template = "";
+  let cursor = 0;
 
-  if (tiles.length < 2 || tiles.length > 10 || correctOrder.length < 2 || correctOrder.length > 10) {
-    throw new Error(`Generated word-order task ${taskId} has an invalid number of tiles.`);
-  }
-
-  if (!haveSameWordTileMultiset(tiles, correctOrder)) {
-    throw new Error(`Generated word-order task ${taskId} uses different tiles and solution words.`);
-  }
-
-  const expectedSentence = normalizeAnswer(expectedExamples[0]);
-  const correctSentence = normalizeAnswer(correctOrder.join(" "));
-
-  if (!expectedSentence || expectedSentence !== correctSentence) {
-    throw new Error(`Generated word-order task ${taskId} does not match its expected example.`);
-  }
+  selectedWords.forEach((word) => {
+    template += `${sentence.slice(cursor, word.index)}___`;
+    cursor = word.end;
+  });
+  template += sentence.slice(cursor);
 
   return {
-    tiles: shuffleWordTiles(tiles),
-    correctOrder
+    template,
+    answers,
+    inputMode,
+    wordBank: inputMode === "drag_drop"
+      ? buildSentenceGapWordBank(answers, requiredVocabulary)
+      : []
   };
 }
 
-function normalizeLevel(level, scenario = null, taskTypePlan = []) {
+function normalizeTaskSentenceGap(
+  sentenceGap,
+  taskType,
+  expectedExamples,
+  requiredVocabulary,
+  plannedInputMode,
+  taskId
+) {
+  if (taskType !== "sentence_gap") {
+    return null;
+  }
+
+  const inputMode = ["text", "drag_drop"].includes(plannedInputMode)
+    ? plannedInputMode
+    : ["text", "drag_drop"].includes(sentenceGap?.inputMode)
+      ? sentenceGap.inputMode
+      : Math.random() < 0.5
+        ? "text"
+        : "drag_drop";
+  const template = String(sentenceGap?.template || "").trim();
+  const answers = Array.isArray(sentenceGap?.answers)
+    ? sentenceGap.answers.slice(0, 2).map((answer) => String(answer || "").trim()).filter(Boolean)
+    : [];
+  const gapCount = (template.match(/___/g) || []).length;
+  const expectedSentence = normalizeAnswer(expectedExamples[0]);
+  const completedSentence = normalizeAnswer(fillSentenceGapTemplate(template, answers));
+  const hasVisibleSentencePart = getSpanishWords(template.replace(/___/g, "")).length > 0;
+  const baseGapIsUsable =
+    gapCount >= 1 &&
+    gapCount <= 2 &&
+    answers.length === gapCount &&
+    hasVisibleSentencePart &&
+    expectedSentence &&
+    completedSentence === expectedSentence;
+
+  if (baseGapIsUsable) {
+    const generatedWordBank = Array.isArray(sentenceGap?.wordBank)
+      ? sentenceGap.wordBank.slice(0, 6).map((word) => String(word || "").trim()).filter(Boolean)
+      : [];
+    const wordBank = inputMode === "drag_drop"
+      ? generatedWordBank.length >= 3 && wordBankContainsAnswers(generatedWordBank, answers)
+        ? shuffleWordTiles(generatedWordBank)
+        : buildSentenceGapWordBank(answers, requiredVocabulary)
+      : [];
+
+    return {
+      template,
+      answers,
+      inputMode,
+      wordBank
+    };
+  }
+
+  const recoveredGap = recoverSentenceGap(expectedExamples[0], requiredVocabulary, inputMode);
+
+  if (!recoveredGap) {
+    console.warn(`Converted sentence-gap task ${taskId} to free text because its example is too short.`);
+  }
+
+  return recoveredGap;
+}
+
+function normalizeTaskWordOrder(wordOrder, taskType, expectedExamples, taskId) {
+  if (taskType !== "word_order") {
+    return null;
+  }
+
+  const tiles = Array.isArray(wordOrder?.tiles)
+    ? wordOrder.tiles.map((tile) => String(tile || "").trim()).filter(Boolean)
+    : [];
+  const correctOrder = Array.isArray(wordOrder?.correctOrder)
+    ? wordOrder.correctOrder.map((tile) => String(tile || "").trim()).filter(Boolean)
+    : [];
+  const expectedSentence = normalizeAnswer(expectedExamples[0]);
+  const correctSentence = normalizeAnswer(correctOrder.join(" "));
+  const generatedWordOrderIsUsable =
+    tiles.length >= 2 &&
+    tiles.length <= 10 &&
+    correctOrder.length >= 2 &&
+    correctOrder.length <= 10 &&
+    haveSameWordTileMultiset(tiles, correctOrder) &&
+    expectedSentence &&
+    expectedSentence === correctSentence;
+
+  if (generatedWordOrderIsUsable) {
+    return {
+      tiles: shuffleWordTiles(tiles),
+      correctOrder
+    };
+  }
+
+  const recoveredOrder = String(expectedExamples[0] || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (recoveredOrder.length < 2 || recoveredOrder.length > 10) {
+    console.warn(`Converted word-order task ${taskId} to free text because its example has an invalid length.`);
+    return null;
+  }
+
+  return {
+    tiles: shuffleWordTiles(recoveredOrder),
+    correctOrder: recoveredOrder
+  };
+}
+
+function getDefaultLocationType(locationId) {
+  if (locationId === "park") {
+    return "park";
+  }
+
+  if (locationId === "bus_stop") {
+    return "station";
+  }
+
+  if (locationId === "drink_stand") {
+    return "stand";
+  }
+
+  if (["supermarket", "clothing_store"].includes(locationId)) {
+    return "shop";
+  }
+
+  if (["hotel", "post_office"].includes(locationId)) {
+    return "service";
+  }
+
+  return "building";
+}
+
+function getDefaultLocationLabel(locationId) {
+  const catalogLevel = availableLevelCatalog.find((entry) => entry.buildingId === locationId);
+
+  if (catalogLevel?.titleGerman) {
+    return catalogLevel.titleGerman;
+  }
+
+  return String(locationId || "Ort").replace(/_/g, " ");
+}
+
+function normalizeLevel(level, scenario = null, taskTypePlan = [], sentenceGapModePlan = []) {
   if (!level || typeof level !== "object") {
     throw new Error("Generated level is not an object.");
   }
@@ -1929,75 +2388,125 @@ function normalizeLevel(level, scenario = null, taskTypePlan = []) {
     throw new Error("Generated level has invalid vocabularyPreview length.");
   }
 
-  const locations = Array.isArray(level.locations)
-    ? level.locations
-        .filter((location) => location.isRelevant)
-        .slice(0, 4)
-        .map((location, index) => ({
-          id: String(location.id || `location_${index}`),
-          type: worldModel.locationTypes.includes(location.type) ? location.type : "building",
-          labelGerman: String(location.labelGerman || "Ort"),
-          x: clampNumber(location.x, 40, 920, 120 + index * 180),
-          width: clampNumber(location.width, 80, 240, 150),
-          theme: String(location.theme || level.backgroundTheme || "city"),
-          isRelevant: true
-        }))
+  const rawTasks = Array.isArray(level.tasks)
+    ? level.tasks.slice(0, 3).sort((firstTask, secondTask) => Number(firstTask.order) - Number(secondTask.order))
     : [];
+  const requiredLocationIds = new Set(
+    [scenario?.primaryLocationId, ...rawTasks.map((task) => task.locationId)].filter(Boolean)
+  );
+  const rawLocationsById = new Map();
+
+  for (const location of Array.isArray(level.locations) ? level.locations : []) {
+    const locationId = String(location?.id || "");
+    const isAllowedLocation =
+      availableBuildingLocationIdSet.has(locationId) &&
+      (!scenario || scenario.allowedLocations.includes(locationId));
+
+    if (isAllowedLocation && !rawLocationsById.has(locationId)) {
+      rawLocationsById.set(locationId, location);
+    }
+  }
+
+  const orderedLocationIds = [
+    ...requiredLocationIds,
+    ...[...rawLocationsById.entries()]
+      .filter(([, location]) => location.isRelevant !== false)
+      .map(([locationId]) => locationId)
+  ];
+  const locations = [...new Set(orderedLocationIds)]
+    .filter(
+      (locationId) =>
+        availableBuildingLocationIdSet.has(locationId) &&
+        (!scenario || scenario.allowedLocations.includes(locationId))
+    )
+    .slice(0, 4)
+    .map((locationId, index) => {
+      const location = rawLocationsById.get(locationId) || {};
+      const assetWidth = availableBuildingAssets[locationId]?.width;
+
+      return {
+        id: locationId,
+        type: worldModel.locationTypes.includes(location.type)
+          ? location.type
+          : getDefaultLocationType(locationId),
+        labelGerman: String(location.labelGerman || getDefaultLocationLabel(locationId)),
+        x: clampNumber(location.x, 40, 920, 120 + index * 260),
+        width: clampNumber(location.width, 80, 240, Math.min(Number(assetWidth) || 180, 240)),
+        theme: String(location.theme || level.backgroundTheme || "city"),
+        isRelevant: true
+      };
+    });
 
   if (locations.length < 1) {
     throw new Error("Generated level has no relevant locations.");
-  }
-
-  if (locations.some((location) => !availableBuildingLocationIdSet.has(location.id))) {
-    throw new Error("Generated level references a location without a PNG building asset.");
   }
 
   if (scenario && scenario.allowedLocations.length > 1 && locations.length < 2) {
     throw new Error("Generated level needs at least two relevant locations.");
   }
 
-  if (scenario && locations.some((location) => !scenario.allowedLocations.includes(location.id))) {
-    throw new Error("Generated level contains a location outside the selected scenario.");
-  }
-
   const locationIds = new Set(locations.map((location) => location.id));
 
-  if (locationIds.size !== locations.length) {
-    throw new Error("Generated level contains duplicate location IDs.");
+  if (scenario?.primaryLocationId && !locationIds.has(scenario.primaryLocationId)) {
+    throw new Error("Generated level omits the primary location of the selected scenario.");
   }
 
-  const npcs = Array.isArray(level.npcs)
-    ? level.npcs.slice(0, 4).map((npc, index) => ({
-        id: String(npc.id || ""),
-        nameGerman: String(npc.nameGerman || npc.id || "Person"),
-        role: npc.role === "quest_npc" ? "quest_npc" : "ambient_npc",
-        x: clampNumber(npc.x, 50, 940, 160 + index * 180),
-        nearLocationId: locationIds.has(npc.nearLocationId) ? npc.nearLocationId : locations[0].id,
+  const requiredNpcIds = new Set(
+    [scenario?.primaryNpcId, ...rawTasks.map((task) => task.npcId)].filter(Boolean)
+  );
+  const rawNpcsById = new Map();
+
+  for (const npc of Array.isArray(level.npcs) ? level.npcs : []) {
+    const npcId = String(npc?.id || "");
+    const isAllowedNpc = availableNpcIdSet.has(npcId) && (!scenario || scenario.allowedNpcs.includes(npcId));
+
+    if (isAllowedNpc && !rawNpcsById.has(npcId)) {
+      rawNpcsById.set(npcId, npc);
+    }
+  }
+
+  const orderedNpcIds = [...requiredNpcIds, ...rawNpcsById.keys()];
+  const npcs = [...new Set(orderedNpcIds)]
+    .filter((npcId) => availableNpcIdSet.has(npcId) && (!scenario || scenario.allowedNpcs.includes(npcId)))
+    .slice(0, 4)
+    .map((npcId, index) => {
+      const npc = rawNpcsById.get(npcId) || {};
+      const taskLocationId = rawTasks.find((task) => task.npcId === npcId)?.locationId;
+      const nearLocationId = locationIds.has(npc.nearLocationId)
+        ? npc.nearLocationId
+        : locationIds.has(taskLocationId)
+          ? taskLocationId
+          : locations[0].id;
+      const nearbyLocation = locations.find((location) => location.id === nearLocationId);
+
+      return {
+        id: npcId,
+        nameGerman: String(npc.nameGerman || availableCharacterAssets[npcId]?.name || npcId || "Person"),
+        role: requiredNpcIds.has(npcId) || npc.role === "quest_npc" ? "quest_npc" : "ambient_npc",
+        x: clampNumber(npc.x, 50, 940, (nearbyLocation?.x || 120) + (nearbyLocation?.width || 150) * 0.55),
+        nearLocationId,
         appearsAtTask: Math.round(clampNumber(npc.appearsAtTask, 1, 3, 1)),
         leavesAfterTask:
           npc.leavesAfterTask === null || npc.leavesAfterTask === undefined
             ? null
             : Math.round(clampNumber(npc.leavesAfterTask, 1, 3, 3))
-      }))
-    : [];
+      };
+    });
 
-  if (npcs.length < 1 || new Set(npcs.map((npc) => npc.id)).size !== npcs.length) {
+  if (npcs.length < 1) {
     throw new Error("Generated level contains invalid NPCs.");
-  }
-
-  if (npcs.some((npc) => !availableNpcIdSet.has(npc.id))) {
-    throw new Error("Generated level references an NPC without portrait and idle assets.");
   }
 
   if (scenario && scenario.allowedNpcs.length > 1 && npcs.length < 2) {
     throw new Error("Generated level needs at least two NPCs.");
   }
 
-  if (scenario && npcs.some((npc) => !scenario.allowedNpcs.includes(npc.id))) {
-    throw new Error("Generated level contains an NPC outside the selected scenario.");
+  const npcIds = new Set(npcs.map((npc) => npc.id));
+
+  if (scenario?.primaryNpcId && !npcIds.has(scenario.primaryNpcId)) {
+    throw new Error("Generated level omits the primary NPC of the selected scenario.");
   }
 
-  const npcIds = new Set(npcs.map((npc) => npc.id));
   const items = [];
   const itemIds = new Set();
 
@@ -2019,7 +2528,7 @@ function normalizeLevel(level, scenario = null, taskTypePlan = []) {
   }
 
   const referencedItemIds = new Set(
-    (Array.isArray(level.tasks) ? level.tasks : []).flatMap((task) =>
+    rawTasks.flatMap((task) =>
       [task.rewardItem, task.requiredItem, task.removeItemOnSuccess].filter(Boolean)
     )
   );
@@ -2049,11 +2558,8 @@ function normalizeLevel(level, scenario = null, taskTypePlan = []) {
     });
   }
 
-  const tasks = Array.isArray(level.tasks)
-    ? level.tasks
-        .slice(0, 3)
-        .sort((a, b) => Number(a.order) - Number(b.order))
-        .map((task, index) => {
+  const tasks = rawTasks.length > 0
+    ? rawTasks.map((task, index) => {
           if (!locationIds.has(task.locationId) || !npcIds.has(task.npcId)) {
             throw new Error("Generated level task references missing location or NPC.");
           }
@@ -2062,29 +2568,45 @@ function normalizeLevel(level, scenario = null, taskTypePlan = []) {
             throw new Error("Generated level task contains a learning goal outside the selected scenario.");
           }
 
-          for (const itemField of ["rewardItem", "requiredItem", "removeItemOnSuccess"]) {
-            if (task[itemField] !== null && task[itemField] !== undefined && !itemIds.has(task[itemField])) {
-              throw new Error("Generated level task references missing item.");
-            }
-          }
-
-          const expectedExamples = Array.isArray(task.expectedExamples)
-            ? task.expectedExamples.slice(0, 3).map((example) => String(example))
+          const normalizedExpectedExamples = Array.isArray(task.expectedExamples)
+            ? task.expectedExamples.slice(0, 3).map((example) => String(example).trim()).filter(Boolean)
+            : [];
+          const expectedExamples = normalizedExpectedExamples.length > 0
+            ? normalizedExpectedExamples
             : ["Hola."];
+          const requiredVocabulary = Array.isArray(task.requiredVocabulary)
+            ? task.requiredVocabulary.slice(0, 5).map((word) => String(word))
+            : [];
           const plannedTaskType = taskTypePlan[index];
-          const taskType = plannedTaskType || (task.taskType === "word_order" ? "word_order" : "free_text");
+          let taskType = plannedTaskType || (
+            ["free_text", "word_order", "sentence_gap"].includes(task.taskType)
+              ? task.taskType
+              : "free_text"
+          );
+          const wordOrder = normalizeTaskWordOrder(task.wordOrder, taskType, expectedExamples, task.taskId);
+          const sentenceGap = normalizeTaskSentenceGap(
+            task.sentenceGap,
+            taskType,
+            expectedExamples,
+            requiredVocabulary,
+            sentenceGapModePlan[index],
+            task.taskId
+          );
 
-          if (plannedTaskType && task.taskType !== plannedTaskType) {
-            throw new Error(`Generated level task ${task.taskId} does not follow the requested task type plan.`);
+          if (taskType === "word_order" && !wordOrder) {
+            taskType = "free_text";
           }
 
-          const wordOrder = normalizeTaskWordOrder(task.wordOrder, taskType, expectedExamples, task.taskId);
+          if (taskType === "sentence_gap" && !sentenceGap) {
+            taskType = "free_text";
+          }
 
-          return {
+          const normalizedTask = {
             taskId: String(task.taskId || `task_${index + 1}`),
             order: index + 1,
             taskType,
             wordOrder,
+            sentenceGap,
             titleGerman: String(task.titleGerman || "Aufgabe"),
             instructionGerman: String(task.instructionGerman || "Antworte mit einem kurzen spanischen Satz."),
             locationId: task.locationId,
@@ -2093,15 +2615,18 @@ function normalizeLevel(level, scenario = null, taskTypePlan = []) {
             npcSpanish: String(task.npcSpanish || "Hola."),
             expectedIntent: String(task.expectedIntent || ""),
             expectedExamples,
-            requiredVocabulary: Array.isArray(task.requiredVocabulary)
-              ? task.requiredVocabulary.slice(0, 5).map((word) => String(word))
-              : [],
+            requiredVocabulary,
             rewardXp: Math.max(0, Math.min(Number(task.rewardXp) || 10, 20)),
-            rewardItem: task.rewardItem || null,
-            requiredItem: task.requiredItem || null,
-            removeItemOnSuccess: task.removeItemOnSuccess || null,
+            rewardItem: itemIds.has(task.rewardItem) ? task.rewardItem : null,
+            requiredItem: itemIds.has(task.requiredItem) ? task.requiredItem : null,
+            removeItemOnSuccess: itemIds.has(task.removeItemOnSuccess) ? task.removeItemOnSuccess : null,
+            itemSelectionItem: itemIds.has(task.itemSelectionItem) ? task.itemSelectionItem : null,
             successMessageGerman: String(task.successMessageGerman || "Gut gemacht!")
           };
+
+          normalizedTask.itemSelectionItem = getValidatedItemSelectionItem(normalizedTask, itemIds);
+
+          return normalizedTask;
         })
     : [];
 
@@ -2109,10 +2634,36 @@ function normalizeLevel(level, scenario = null, taskTypePlan = []) {
     throw new Error("Generated level must contain 2-3 tasks.");
   }
 
-  validateLevelTaskFlow(tasks, items);
+  repairLevelTaskFlow(tasks, items);
+
+  npcs.forEach((npc) => {
+    const npcTaskOrders = tasks
+      .filter((task) => task.npcId === npc.id)
+      .map((task) => task.order);
+
+    if (npcTaskOrders.length === 0) {
+      return;
+    }
+
+    const firstTaskOrder = Math.min(...npcTaskOrders);
+    const lastTaskOrder = Math.max(...npcTaskOrders);
+    npc.appearsAtTask = Math.min(npc.appearsAtTask, firstTaskOrder);
+
+    if (npc.leavesAfterTask !== null && npc.leavesAfterTask < lastTaskOrder) {
+      npc.leavesAfterTask = lastTaskOrder;
+    }
+  });
 
   const taskLocationIds = new Set(tasks.map((task) => task.locationId));
   const taskNpcIds = new Set(tasks.map((task) => task.npcId));
+
+  if (scenario?.primaryLocationId && !taskLocationIds.has(scenario.primaryLocationId)) {
+    throw new Error("Generated level does not use the primary location in a task.");
+  }
+
+  if (scenario?.primaryNpcId && !taskNpcIds.has(scenario.primaryNpcId)) {
+    throw new Error("Generated level does not use the primary NPC in a task.");
+  }
 
   if (locations.length > 1 && taskLocationIds.size < 2) {
     throw new Error("Generated level must use at least two task stations.");
@@ -2243,22 +2794,43 @@ function normalizeGeneratedQuest(quest, scenario) {
 }
 
 function getSafeLevelGenerationContext(requestBody = {}) {
-  const recentScenarioIds = Array.isArray(requestBody.recentScenarioIds)
-    ? requestBody.recentScenarioIds
+  const safeBody = requestBody && typeof requestBody === "object" ? requestBody : {};
+  const hasScenarioRequest = typeof safeBody.scenarioId === "string" && safeBody.scenarioId.length > 0;
+  const hasCatalogLevelRequest = typeof safeBody.catalogLevelId === "string" && safeBody.catalogLevelId.length > 0;
+  const requestedScenarioId = worldModel.scenarioIds.includes(safeBody.scenarioId)
+    ? safeBody.scenarioId
+    : null;
+  const requestedCatalogLevel = availableLevelCatalog.find(
+    (level) => level.id === safeBody.catalogLevelId
+  );
+  const recentScenarioIds = Array.isArray(safeBody.recentScenarioIds)
+    ? safeBody.recentScenarioIds
         .filter((scenarioId) => worldModel.scenarioIds.includes(scenarioId))
         .slice(0, 4)
     : [];
-  const recentTaskIntents = Array.isArray(requestBody.recentTaskIntents)
-    ? requestBody.recentTaskIntents
+  const recentTaskIntents = Array.isArray(safeBody.recentTaskIntents)
+    ? safeBody.recentTaskIntents
         .map((intent) => String(intent || "").trim().slice(0, 160))
         .filter(Boolean)
         .slice(0, 8)
     : [];
 
   return {
+    scenarioId: requestedCatalogLevel?.scenarioId || requestedScenarioId,
+    catalogLevelId: requestedCatalogLevel?.id || null,
+    selectionError:
+      (hasScenarioRequest && !requestedScenarioId) ||
+      (hasCatalogLevelRequest && !requestedCatalogLevel) ||
+      Boolean(requestedCatalogLevel && requestedScenarioId && requestedCatalogLevel.scenarioId !== requestedScenarioId),
+    levelNumber: requestedCatalogLevel?.number || Math.round(Math.max(1, Math.min(Number(safeBody.levelNumber) || 1, 99))),
+    playCount: Math.round(Math.max(1, Math.min(Number(safeBody.playCount) || 1, 999))),
     recentScenarioIds: [...new Set(recentScenarioIds)],
     recentTaskIntents
   };
+}
+
+function getScenarioById(scenarioId) {
+  return worldModel.scenarios.find((scenario) => scenario.scenarioId === scenarioId) || null;
 }
 
 function selectScenario(excludedScenarioIds = []) {
@@ -2280,7 +2852,7 @@ function selectScenario(excludedScenarioIds = []) {
   return scenarioPool[randomIndex];
 }
 
-function selectLearningFocus(scenario, recentTaskIntents = []) {
+function selectLearningFocus(scenario, recentTaskIntents = [], playCount = 1) {
   const recentIntentText = normalizeForSolutionLeakCheck(recentTaskIntents.join(" "));
   const goalKeywords = {
     introduce_yourself: ["introduce_yourself", "vorstell", "name"],
@@ -2294,13 +2866,18 @@ function selectLearningFocus(scenario, recentTaskIntents = []) {
     greeting: ["greeting", "begru", "hallo"],
     give_item: ["give_item", "gib", "geb", "uberg", "bring"]
   };
-  const unusedGoals = scenario.allowedLearningGoals.filter((goal) => {
+  const rotationIndex = Math.max(0, Number(playCount) - 1) % scenario.allowedLearningGoals.length;
+  const rotatedGoals = [
+    ...scenario.allowedLearningGoals.slice(rotationIndex),
+    ...scenario.allowedLearningGoals.slice(0, rotationIndex)
+  ];
+  const unusedGoals = rotatedGoals.filter((goal) => {
     const keywords = goalKeywords[goal] || [goal];
     return !keywords.some((keyword) => recentIntentText.includes(keyword));
   });
-  const goalPool = unusedGoals.length > 0 ? unusedGoals : scenario.allowedLearningGoals;
+  const goalPool = unusedGoals.length > 0 ? unusedGoals : rotatedGoals;
 
-  return goalPool[Math.floor(Math.random() * goalPool.length)];
+  return goalPool[0];
 }
 
 function getStoryPattern(learningFocus) {
@@ -2321,14 +2898,23 @@ function getStoryPattern(learningFocus) {
 }
 
 function createTaskTypePlan() {
-  const firstTwoTaskTypes = Math.random() < 0.5
-    ? ["free_text", "word_order"]
-    : ["word_order", "free_text"];
+  const taskTypes = ["free_text", "word_order", "sentence_gap"];
+  const firstTwoTaskTypes = shuffleItems(taskTypes).slice(0, 2);
 
   return [
     ...firstTwoTaskTypes,
-    Math.random() < 0.5 ? "free_text" : "word_order"
+    taskTypes[Math.floor(Math.random() * taskTypes.length)]
   ];
+}
+
+function createSentenceGapModePlan(taskTypePlan) {
+  return taskTypePlan.map((taskType) =>
+    taskType === "sentence_gap"
+      ? Math.random() < 0.5
+        ? "text"
+        : "drag_drop"
+      : null
+  );
 }
 
 function getDummyHint(questContext, hintLevel = 1) {
@@ -2479,12 +3065,26 @@ function buildEnvironmentPrompt() {
   ].join("\n");
 }
 
-function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null, taskTypePlan = []) {
+function buildLevelPrompt(
+  scenario,
+  generationContext = {},
+  learningFocus = null,
+  taskTypePlan = [],
+  sentenceGapModePlan = []
+) {
   const allowedScenarioIds = [scenario.scenarioId];
   const storyPattern = getStoryPattern(learningFocus);
+  const previousGenerationErrors = Array.isArray(generationContext.previousGenerationErrors)
+    ? generationContext.previousGenerationErrors
+        .slice(-1)
+        .map((message) => String(message || "").replace(/\s+/g, " ").trim().slice(0, 220))
+        .filter(Boolean)
+    : [];
   const allowedWorldFrame = {
     scenarioFrameId: scenario.id,
     scenarioIds: allowedScenarioIds,
+    primaryLocationId: scenario.primaryLocationId,
+    primaryNpcId: scenario.primaryNpcId,
     locationIds: scenario.allowedLocations,
     locationTypes: worldModel.locationTypes,
     npcs: scenario.allowedNpcs,
@@ -2492,7 +3092,8 @@ function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null
     items: scenario.allowedItems,
     primaryLearningGoal: learningFocus,
     storyPattern,
-    taskTypePlan
+    taskTypePlan,
+    sentenceGapModePlan
   };
 
   return [
@@ -2500,24 +3101,44 @@ function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null
     "Erzeuge genau ein Level für absolute Spanisch-Anfänger auf Niveau A1.",
     "Antworte ausschließlich mit JSON, das exakt dem Schema entspricht.",
     "Nutze ausschließlich IDs aus dem angegebenen erlaubten Szenario-Rahmen.",
+    `Generierungsversuch ${generationContext.generationAttempt || 1} von ${MAX_LEVEL_GENERATION_ATTEMPTS}.`,
+    ...(previousGenerationErrors.length > 0
+      ? [`Der vorherige Versuch wurde aus diesem Grund abgelehnt: ${previousGenerationErrors[0]}`, "Korrigiere genau diesen Konsistenzfehler."]
+      : []),
+    `Dies ist Level ${generationContext.levelNumber || 1} im festen Szenario ${scenario.scenarioId}.`,
+    `Dies ist Durchlauf ${generationContext.playCount || 1} dieses Szenarios. Erzeuge bei Wiederholungen eine neue Alltagshandlung und andere Aufgabenabsichten.`,
     "level.scenarioId muss aus scenarioIds im erlaubten Szenario-Rahmen stammen.",
     "locations[].id muss aus locationIds im erlaubten Szenario-Rahmen stammen.",
     "Jede erlaubte locationId besitzt ein festes PNG-Asset. Erfinde keine weiteren Gebäude, Orte oder IDs.",
     "npcs[].id muss aus npcs im erlaubten Szenario-Rahmen stammen.",
     "Jede erlaubte NPC-ID besitzt ein festes Portrait und Idle-Sprite. Erfinde keine weiteren Figuren oder IDs.",
+    `Das Hauptgebaeude ${scenario.primaryLocationId} muss in locations vorkommen und in mindestens einer Aufgabe verwendet werden.`,
+    `Der Szenario-NPC ${scenario.primaryNpcId} muss in npcs vorkommen und in mindestens einer Aufgabe verwendet werden.`,
     "items[].id muss aus items im erlaubten Szenario-Rahmen stammen.",
     "Nimm in items nur Dinge auf, die in tasks als rewardItem, requiredItem oder removeItemOnSuccess gebraucht werden.",
+    "itemSelectionItem steuert, ob im Dialog drei anklickbare Gegenstände erscheinen.",
+    "Setze itemSelectionItem bei jeder konkreten Gegenstandshandlung auf die betroffene Item-ID: auswählen, bestellen, kaufen, zeigen, bringen oder übergeben.",
+    "Setze itemSelectionItem auch dann, wenn der NPC ausdrücklich nach einem Item fragt und dieses Item als rewardItem, requiredItem oder removeItemOnSuccess in derselben Aufgabe vorkommt.",
+    "Bei Begrüßungen, Vorstellungen, Wegfragen, Hilfefragen und anderen reinen Sprachaufgaben muss itemSelectionItem null sein.",
+    "itemSelectionItem muss null sein oder exakt rewardItem, requiredItem oder removeItemOnSuccess derselben Aufgabe entsprechen.",
     "Bevorzuge abwechslungsreiche Alltagsziele aus learningGoals. Nutze order_drink nur, wenn es wirklich zum Szenario passt.",
     `Das primaere Lernziel dieses Levels ist ${learningFocus}. Mindestens eine Aufgabe muss dieses Ziel umsetzen.`,
     "Vermeide inhaltliche Wiederholungen der zuletzt erzeugten Aufgaben.",
     `Zuletzt verwendete Aufgabenabsichten: ${JSON.stringify(generationContext.recentTaskIntents || [])}`,
     "Das Level besteht aus einer einfachen Umgebung, einer Vokabel-Vorschau und 2-3 kurzen Aufgaben.",
     "Setze taskType für jede Aufgabe exakt gemäß taskTypePlan anhand ihrer Reihenfolge. Nutze bei zwei Aufgaben die ersten zwei Einträge.",
-    "Bei taskType free_text muss wordOrder null sein.",
-    "Bei taskType word_order muss wordOrder ein Objekt mit 3-8 kurzen Wortkärtchen sein.",
+    "Bei taskType free_text müssen wordOrder und sentenceGap null sein.",
+    "Bei taskType word_order muss wordOrder ein Objekt mit 3-8 kurzen Wortkärtchen und sentenceGap null sein.",
     "wordOrder.correctOrder enthält die Wörter in richtiger Reihenfolge; mit Leerzeichen verbunden muss es exakt expectedExamples[0] ergeben.",
     "wordOrder.tiles enthält exakt dieselben Wörter wie correctOrder, darf aber in beliebiger Reihenfolge stehen.",
     "Wortreihenfolge-Aufgaben müssen kurze eindeutige A1-Sätze ohne alternative Wortstellung verwenden.",
+    "Bei taskType sentence_gap muss wordOrder null und sentenceGap ein Objekt sein.",
+    "sentenceGap.template entsteht aus expectedExamples[0], indem exakt ein oder zwei einzelne Wörter durch ___ ersetzt werden. Ein sinnvoller Satzteil muss sichtbar bleiben.",
+    "sentenceGap.answers enthält die fehlenden Wörter in der Reihenfolge der Lücken. Eingesetzt müssen sie exakt expectedExamples[0] ergeben.",
+    "Setze sentenceGap.inputMode exakt gemäß sentenceGapModePlan derselben Aufgabenposition.",
+    "Bei inputMode text muss sentenceGap.wordBank leer sein.",
+    "Bei inputMode drag_drop muss sentenceGap.wordBank 3-6 kurze Wörter enthalten, darunter jedes Lösungswort genau einmal sowie passende Ablenkwörter.",
+    "Lückentext-Aufgaben benötigen einen kurzen Satz mit mindestens zwei Wörtern; verrate die fehlenden Wörter nicht in sichtbaren Aufgabenfeldern.",
     "Jedes Level muss eine kleine Handlungskette mit mindestens zwei Stationen haben.",
     `Nutze diesen Handlungsbogen als roten Faden: ${storyPattern}`,
     "descriptionGerman beschreibt die Ausgangssituation und genau ein gemeinsames Levelziel, ohne eine Lösung vorzugeben.",
@@ -2538,6 +3159,8 @@ function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null
     "Jede Aufgabe darf nur einen kurzen spanischen Satz erfordern.",
     "Keine langen Dialoge. Keine schweren Textaufgaben. Keine Grammatik-Erklärungen in der Aufgabe.",
     "Nutze pro Level 4-7 Vokabeln in vocabularyPreview.",
+    "Bevorzuge dort einzelne Wörter mit direkter deutscher Übersetzung.",
+    "Nutze kurze Wendungen mit höchstens zwei Wörtern nur, wenn sie als feste Einheit nötig sind.",
     "Alle expectedExamples müssen sehr kurz und realistisch sein.",
     "Jede Aufgabe darf nur Vokabeln aus vocabularyPreview oder sehr einfache bekannte Wörter nutzen.",
     "Sichtbare Felder dürfen keine vollständigen Lösungen oder Beispielantworten enthalten.",
@@ -2559,19 +3182,56 @@ function buildLevelPrompt(scenario, generationContext = {}, learningFocus = null
 }
 
 function extractOutputText(responseData) {
-  if (typeof responseData.output_text === "string") {
+  if (!responseData || typeof responseData !== "object") {
+    const error = new Error("OpenAI returned an invalid response body.");
+    error.retryable = true;
+    throw error;
+  }
+
+  if (responseData.status === "incomplete") {
+    const reason = responseData.incomplete_details?.reason || "unknown";
+    const error = new Error(`OpenAI response was incomplete (${reason}).`);
+    error.retryable = reason === "max_output_tokens" || reason === "content_filter";
+    throw error;
+  }
+
+  if (responseData.error) {
+    const error = new Error(`OpenAI response failed (${responseData.error.code || "unknown_error"}).`);
+    error.retryable = responseData.error.code === "server_error" || responseData.error.code === "rate_limit_exceeded";
+    throw error;
+  }
+
+  if (responseData.status && responseData.status !== "completed") {
+    const error = new Error(`OpenAI response ended with status ${responseData.status}.`);
+    error.retryable = true;
+    throw error;
+  }
+
+  for (const outputItem of responseData.output || []) {
+    for (const contentItem of outputItem.content || []) {
+      if (contentItem.type === "refusal") {
+        const error = new Error("OpenAI refused to generate the requested structured output.");
+        error.retryable = false;
+        throw error;
+      }
+    }
+  }
+
+  if (typeof responseData.output_text === "string" && responseData.output_text.trim()) {
     return responseData.output_text;
   }
 
   for (const outputItem of responseData.output || []) {
     for (const contentItem of outputItem.content || []) {
-      if (contentItem.type === "output_text" && typeof contentItem.text === "string") {
+      if (contentItem.type === "output_text" && typeof contentItem.text === "string" && contentItem.text.trim()) {
         return contentItem.text;
       }
     }
   }
 
-  return "";
+  const error = new Error("OpenAI returned no structured output text.");
+  error.retryable = true;
+  throw error;
 }
 
 function getSchemaTypes(schema) {
@@ -3018,16 +3678,25 @@ async function generateEnvironmentWithOpenAI() {
   }
 }
 
-async function generateLevelWithOpenAI(scenario, generationContext = {}) {
+async function generateLevelWithOpenAI(scenario, generationContext = {}, generationPlan = {}) {
   if (!process.env.OPENAI_API_KEY) {
     return null;
   }
 
-  const learningFocus = selectLearningFocus(scenario, generationContext.recentTaskIntents);
-  const taskTypePlan = createTaskTypePlan();
+  const learningFocus = generationPlan.learningFocus || selectLearningFocus(
+      scenario,
+      generationContext.recentTaskIntents,
+      generationContext.playCount
+    );
+  const taskTypePlan = Array.isArray(generationPlan.taskTypePlan)
+    ? generationPlan.taskTypePlan
+    : createTaskTypePlan();
+  const sentenceGapModePlan = Array.isArray(generationPlan.sentenceGapModePlan)
+    ? generationPlan.sentenceGapModePlan
+    : createSentenceGapModePlan(taskTypePlan);
   const scenarioLevelSchema = createLevelSchemaForScenario(scenario);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), LEVEL_GENERATION_TIMEOUT_MS);
 
   try {
     const response = await fetch(OPENAI_API_URL, {
@@ -3039,7 +3708,13 @@ async function generateLevelWithOpenAI(scenario, generationContext = {}) {
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        input: buildLevelPrompt(scenario, generationContext, learningFocus, taskTypePlan),
+        input: buildLevelPrompt(
+          scenario,
+          generationContext,
+          learningFocus,
+          taskTypePlan,
+          sentenceGapModePlan
+        ),
         text: {
           format: {
             type: "json_schema",
@@ -3061,7 +3736,15 @@ async function generateLevelWithOpenAI(scenario, generationContext = {}) {
     const outputText = extractOutputText(responseData);
     const parsedLevel = parseStructuredOutput(outputText, scenarioLevelSchema, "level");
 
-    return normalizeLevel(parsedLevel, scenario, taskTypePlan);
+    return normalizeLevel(parsedLevel, scenario, taskTypePlan, sentenceGapModePlan);
+  } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutError = new Error(`OpenAI level generation exceeded ${LEVEL_GENERATION_TIMEOUT_MS / 1000} seconds.`);
+      timeoutError.retryable = true;
+      throw timeoutError;
+    }
+
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -3139,6 +3822,7 @@ async function generateItemChoicesWithOpenAI(expectedItem, taskContext = {}, ava
     return null;
   }
 
+  const choicePool = getItemChoicePool(taskContext, availableItems, expectedItem);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
 
@@ -3152,7 +3836,7 @@ async function generateItemChoicesWithOpenAI(expectedItem, taskContext = {}, ava
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        input: buildItemChoicesPrompt(expectedItem, taskContext, availableItems),
+        input: buildItemChoicesPrompt(expectedItem, taskContext, choicePool),
         max_output_tokens: 350,
         text: {
           format: {
@@ -3173,7 +3857,7 @@ async function generateItemChoicesWithOpenAI(expectedItem, taskContext = {}, ava
     const outputText = extractOutputText(responseData);
     const parsedChoices = parseStructuredOutput(outputText, itemChoiceSchema, "itemChoices");
 
-    return normalizeItemChoices(parsedChoices, expectedItem);
+    return normalizeItemChoices(parsedChoices, expectedItem, choicePool);
   } finally {
     clearTimeout(timeout);
   }
@@ -3200,6 +3884,12 @@ app.post("/api/evaluate-answer", async (req, res) => {
   if (currentStep === "generated_level_task" && safeQuestContext.taskType === "word_order") {
     return res.json(
       normalizeEvaluation(evaluateWordOrderTask(normalizedAnswer, normalizedQuestContext), normalizedQuestContext)
+    );
+  }
+
+  if (currentStep === "generated_level_task" && safeQuestContext.taskType === "sentence_gap") {
+    return res.json(
+      normalizeEvaluation(evaluateSentenceGapTask(normalizedAnswer, normalizedQuestContext), normalizedQuestContext)
     );
   }
 
@@ -3252,6 +3942,15 @@ app.post("/api/generate-item-choices", async (req, res) => {
   const safeTaskContext = getSafeQuestContext(taskContext);
   const safeExpectedItem = getExpectedItemFromRequest(expectedItem, safeTaskContext);
 
+  if (!safeExpectedItem) {
+    return res.status(400).json({
+      error: "item_selection_not_required",
+      message: "Für diese Aufgabe ist keine Itemauswahl vorgesehen."
+    });
+  }
+
+  const choicePool = getItemChoicePool(safeTaskContext, availableItems, safeExpectedItem);
+
   try {
     const generatedChoices = await generateItemChoicesWithOpenAI(safeExpectedItem, safeTaskContext, availableItems);
 
@@ -3262,7 +3961,7 @@ app.post("/api/generate-item-choices", async (req, res) => {
     console.error("OpenAI item choice generation failed, using fallback choices:", error.message);
   }
 
-  return res.json(getDummyItemChoices(safeExpectedItem));
+  return res.json(getDummyItemChoices(safeExpectedItem, choicePool));
 });
 
 app.post("/api/generate-item-image", async (req, res) => {
@@ -3340,15 +4039,54 @@ app.post("/api/generate-environment", async (req, res) => {
 
 app.post("/api/generate-level", async (req, res) => {
   let generationError = null;
+  const previousGenerationErrors = [];
+  const generationPlans = new Map();
   const generationContext = getSafeLevelGenerationContext(req.body);
   const excludedScenarioIds = new Set(generationContext.recentScenarioIds);
+  const requestedScenario = generationContext.scenarioId
+    ? getScenarioById(generationContext.scenarioId)
+    : null;
+
+  if (generationContext.selectionError || (generationContext.scenarioId && !requestedScenario)) {
+    return res.status(400).json({
+      error: "invalid_scenario",
+      message: "Das ausgew\u00e4hlte Level-Szenario ist nicht verf\u00fcgbar."
+    });
+  }
 
   for (let attempt = 1; attempt <= MAX_LEVEL_GENERATION_ATTEMPTS; attempt += 1) {
-    const scenario = selectScenario([...excludedScenarioIds]);
-    excludedScenarioIds.add(scenario.scenarioId);
+    const scenario = requestedScenario || selectScenario([...excludedScenarioIds]);
+    let generationPlan = generationPlans.get(scenario.scenarioId);
+
+    if (!requestedScenario) {
+      excludedScenarioIds.add(scenario.scenarioId);
+    }
+
+    if (!generationPlan) {
+      const taskTypePlan = createTaskTypePlan();
+
+      generationPlan = {
+        learningFocus: selectLearningFocus(
+          scenario,
+          generationContext.recentTaskIntents,
+          generationContext.playCount
+        ),
+        taskTypePlan,
+        sentenceGapModePlan: createSentenceGapModePlan(taskTypePlan)
+      };
+      generationPlans.set(scenario.scenarioId, generationPlan);
+    }
 
     try {
-      const generatedLevel = await generateLevelWithOpenAI(scenario, generationContext);
+      const generatedLevel = await generateLevelWithOpenAI(
+        scenario,
+        {
+          ...generationContext,
+          generationAttempt: attempt,
+          previousGenerationErrors
+        },
+        generationPlan
+      );
 
       if (generatedLevel) {
         console.log(
@@ -3360,6 +4098,7 @@ app.post("/api/generate-level", async (req, res) => {
       break;
     } catch (error) {
       generationError = error;
+      previousGenerationErrors.push(error.message);
       console.error(
         `OpenAI level generation attempt ${attempt}/${MAX_LEVEL_GENERATION_ATTEMPTS} failed for scenario ${scenario.scenarioId}:`,
         error.message
@@ -3368,12 +4107,26 @@ app.post("/api/generate-level", async (req, res) => {
       if (error.retryable === false) {
         break;
       }
+
+      if (error.retryable === true && attempt < MAX_LEVEL_GENERATION_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, LEVEL_RETRY_DELAY_MS * attempt));
+      }
     }
   }
 
   if (USE_GENERATION_FALLBACKS) {
-    console.warn("Using fallback level because USE_GENERATION_FALLBACKS=true.");
-    return res.json(getFallbackLevel());
+    const canUseLegacyFallback = !requestedScenario || ["street", "drink_stand"].includes(requestedScenario.scenarioId);
+
+    if (canUseLegacyFallback) {
+      console.warn("Using fallback level because USE_GENERATION_FALLBACKS=true.");
+      const fallbackLevel = getFallbackLevel();
+
+      if (requestedScenario?.scenarioId === "drink_stand") {
+        fallbackLevel.scenarioId = "drink_stand";
+      }
+
+      return res.json(fallbackLevel);
+    }
   }
 
   return sendGenerationUnavailable(
@@ -3383,6 +4136,17 @@ app.post("/api/generate-level", async (req, res) => {
   );
 });
 
-app.listen(PORT, () => {
-  console.log(`Spanish Street Quest server running at http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Spanish Street Quest server running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = {
+  app,
+  extractOutputText,
+  getItemChoicePool,
+  getScenarioById,
+  normalizeItemChoices,
+  normalizeLevel
+};

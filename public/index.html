@@ -21,15 +21,20 @@
             <span class="menu-icon menu-icon--play" aria-hidden="true"></span>
             Neues Spiel
           </button>
-          <button class="main-menu__button" type="button">
+          <button id="continue-button" class="main-menu__button" type="button" disabled>
             <span class="menu-icon menu-icon--bookmark" aria-hidden="true"></span>
             Fortsetzen
           </button>
-          <button class="main-menu__button" type="button">
-            <span class="menu-icon menu-icon--character" aria-hidden="true"></span>
+          <button
+            id="character-select-button"
+            class="main-menu__button"
+            type="button"
+            aria-haspopup="dialog"
+          >
+            <span id="menu-character-preview" class="menu-icon menu-icon--character" aria-hidden="true"></span>
             Charakter wählen
           </button>
-          <button class="main-menu__button" type="button">
+          <button class="main-menu__button" type="button" data-open-settings aria-haspopup="dialog">
             <span class="menu-icon menu-icon--settings" aria-hidden="true"></span>
             Einstellungen
           </button>
@@ -41,10 +46,208 @@
       </div>
     </section>
 
+    <div id="character-select-overlay" class="character-select-overlay" hidden>
+      <section
+        class="character-select"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-select-title"
+      >
+        <header class="character-select__header">
+          <div>
+            <p>Deine Spielfigur</p>
+            <h1 id="character-select-title">Charakter wählen</h1>
+          </div>
+          <button
+            id="close-character-select-x"
+            class="icon-button"
+            type="button"
+            aria-label="Charakterauswahl schließen"
+          >
+            x
+          </button>
+        </header>
+
+        <div class="character-select__options" role="group" aria-label="Verfügbare Charaktere">
+          <button
+            class="character-option"
+            type="button"
+            data-character-id="m"
+            aria-label="Männlichen Charakter auswählen"
+            aria-pressed="true"
+          >
+            <span class="character-option__image-frame">
+              <img
+                src="/assets/characters/main_character_m_Idle.png"
+                alt="Männlicher Charakter mit grüner Jacke"
+              />
+            </span>
+          </button>
+          <button
+            class="character-option"
+            type="button"
+            data-character-id="w"
+            aria-label="Weiblichen Charakter auswählen"
+            aria-pressed="false"
+          >
+            <span class="character-option__image-frame">
+              <img
+                src="/assets/characters/main_character_w_Idle.png"
+                alt="Weiblicher Charakter mit blauer Jacke"
+              />
+            </span>
+          </button>
+        </div>
+
+        <footer class="character-select__actions">
+          <button id="cancel-character-select" class="pixel-button pixel-button--secondary" type="button">
+            Abbrechen
+          </button>
+          <button id="confirm-character-select" class="pixel-button pixel-button--primary" type="button">
+            Auswahl übernehmen
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="settings-overlay" class="settings-overlay" hidden>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="settings-panel__header">
+          <div>
+            <p>Audio</p>
+            <h1 id="settings-title">Einstellungen</h1>
+          </div>
+          <button id="close-settings-x" class="icon-button" type="button" aria-label="Einstellungen schließen">
+            x
+          </button>
+        </header>
+
+        <div class="audio-settings">
+          <label class="audio-setting audio-setting--master" for="master-volume">
+            <span class="audio-setting__header">
+              <strong>Gesamtlautstärke</strong>
+              <output data-audio-output="master" for="master-volume">100 %</output>
+            </span>
+            <input id="master-volume" type="range" min="0" max="100" step="1" data-audio-volume="master" />
+          </label>
+
+          <label class="audio-setting" for="click-volume">
+            <span class="audio-setting__header">
+              <strong>Klicksound</strong>
+              <output data-audio-output="click" for="click-volume">45 %</output>
+            </span>
+            <input id="click-volume" type="range" min="0" max="100" step="1" data-audio-volume="click" />
+          </label>
+
+          <label class="audio-setting" for="menu-music-volume">
+            <span class="audio-setting__header">
+              <strong>Hauptmenü-Musik</strong>
+              <output data-audio-output="menuMusic" for="menu-music-volume">35 %</output>
+            </span>
+            <input
+              id="menu-music-volume"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              data-audio-volume="menuMusic"
+            />
+          </label>
+
+          <label class="audio-setting" for="gameplay-music-volume">
+            <span class="audio-setting__header">
+              <strong>Gameplay-Musik</strong>
+              <output data-audio-output="gameplayMusic" for="gameplay-music-volume">30 %</output>
+            </span>
+            <input
+              id="gameplay-music-volume"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              data-audio-volume="gameplayMusic"
+            />
+          </label>
+
+          <label class="audio-setting" for="level-complete-volume">
+            <span class="audio-setting__header">
+              <strong>Levelabschluss</strong>
+              <output data-audio-output="levelComplete" for="level-complete-volume">70 %</output>
+            </span>
+            <input
+              id="level-complete-volume"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              data-audio-volume="levelComplete"
+            />
+          </label>
+        </div>
+
+        <footer class="settings-panel__actions">
+          <button id="close-settings" class="pixel-button pixel-button--primary" type="button">Fertig</button>
+        </footer>
+      </section>
+    </div>
+
+    <section id="level-select-screen" class="level-select-screen" aria-labelledby="level-select-title" hidden>
+      <div class="level-select__shell">
+        <header class="level-select__header">
+          <div>
+            <p class="level-select__eyebrow">Deine Reise</p>
+            <h1 id="level-select-title">Level&uuml;bersicht</h1>
+            <p>Schalte nach jedem Erfolg ein neues Szenario frei.</p>
+          </div>
+          <div class="level-select__progress" aria-live="polite">
+            <span class="level-select__progress-star" aria-hidden="true">&#9733;</span>
+            <strong id="unlocked-level-count">1 / 9</strong>
+            <span>Szenarien freigeschaltet</span>
+          </div>
+        </header>
+
+        <div id="level-grid" class="level-grid" aria-label="Verf&uuml;gbare Level"></div>
+
+        <footer class="level-select__footer">
+          <div class="level-select__legend" aria-label="Legende">
+            <span><i class="level-state-dot level-state-dot--completed" aria-hidden="true"></i>Abgeschlossen</span>
+            <span><i class="level-state-dot level-state-dot--open" aria-hidden="true"></i>Freigeschaltet</span>
+            <span><i class="level-state-dot level-state-dot--locked" aria-hidden="true"></i>Gesperrt</span>
+          </div>
+          <div class="level-select__actions">
+            <button id="level-select-back-button" class="pixel-button pixel-button--secondary" type="button">
+              &larr; Hauptmen&uuml;
+            </button>
+            <button id="level-select-start-button" class="pixel-button pixel-button--primary" type="button">
+              Level starten
+            </button>
+          </div>
+        </footer>
+      </div>
+    </section>
+
     <section id="vocabulary-screen" class="vocabulary-screen" hidden>
       <div class="vocabulary-screen__content">
         <h1 id="vocabulary-title">Level</h1>
         <p id="vocabulary-description"></p>
+        <div id="level-loading" class="level-loading" hidden>
+          <div class="level-loading__header">
+            <strong>Level wird generiert</strong>
+            <span id="level-loading-percent">0%</span>
+          </div>
+          <div
+            id="level-loading-track"
+            class="level-loading__track"
+            role="progressbar"
+            aria-label="Fortschritt der Levelgenerierung"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <span id="level-loading-fill" class="level-loading__fill"></span>
+          </div>
+          <p id="level-loading-status" class="level-loading__status">Szene wird vorbereitet...</p>
+        </div>
         <div id="vocabulary-list" class="vocabulary-list"></div>
         <button id="start-level-button" type="button">Level starten</button>
       </div>
@@ -52,17 +255,31 @@
 
     <section id="level-complete-screen" class="vocabulary-screen" hidden>
       <div class="vocabulary-screen__content">
-        <h1>Level abgeschlossen</h1>
+        <p class="completion-kicker">Geschafft</p>
+        <h1 id="level-complete-title">Level abgeschlossen</h1>
         <p id="level-summary"></p>
         <div id="learned-vocabulary-list" class="vocabulary-list"></div>
-        <button id="next-level-button" type="button">Nächstes Level</button>
+        <div class="completion-actions">
+          <button id="next-level-button" class="pixel-button pixel-button--primary" type="button">N&auml;chstes Level</button>
+          <button id="complete-level-select-button" class="pixel-button pixel-button--secondary" type="button">
+            Zur&uuml;ck zur Levelauswahl
+          </button>
+          <button id="complete-main-menu-button" class="pixel-button pixel-button--secondary" type="button">
+            Hauptmen&uuml;
+          </button>
+        </div>
       </div>
     </section>
 
     <div id="app-shell" hidden>
       <header id="hud" class="hud">
         <div class="hud-panel hud-panel--player">
-          <img class="hud__avatar" src="/assets/characters/cashier.png" alt="" />
+          <img
+            id="player-avatar"
+            class="hud__avatar"
+            src="/assets/characters/main_character_m_Portrait.png"
+            alt="Portrait des ausgewählten Charakters"
+          />
           <div class="hud__player-info">
             <div class="hud__level-row">
               <span>Level <span id="level-value">1</span></span>
@@ -86,7 +303,7 @@
         </div>
 
         <div class="hud-panel hud-panel--tools">
-          <button class="hud-tool" type="button">
+          <button id="vocabulary-button" class="hud-tool" type="button">
             <span aria-hidden="true">&#9636;</span>
             Vokabeln
           </button>
@@ -94,7 +311,7 @@
             <span aria-hidden="true">?</span>
             Hilfe
           </button>
-          <button class="hud-tool" type="button">
+          <button class="hud-tool" type="button" data-open-settings aria-haspopup="dialog">
             <span aria-hidden="true">&#9881;</span>
             Einstellungen
           </button>
@@ -109,9 +326,6 @@
           <div class="road"></div>
         </section>
 
-        <div id="interaction-prompt" class="interaction-prompt" hidden>
-          Dr&uuml;cke E zum Interagieren
-        </div>
       </main>
 
       <footer id="inventory" class="inventory game-dashboard">
@@ -132,7 +346,13 @@
             <span>&rarr;</span>
             <span>E</span>
           </div>
-          <p>Bewegen &middot; Interagieren</p>
+          <div class="control-status" aria-live="polite">
+            <p id="control-default-hint">Bewegen &middot; Interagieren</p>
+            <div id="interaction-prompt" class="interaction-prompt" hidden>
+              <span class="interaction-prompt__key" aria-hidden="true">E</span>
+              <span>dr&uuml;cken zum Interagieren</span>
+            </div>
+          </div>
         </section>
 
         <section class="dashboard-panel dashboard-panel--questlog" aria-labelledby="questlog-heading">
@@ -201,6 +421,27 @@
               ></div>
             </div>
 
+            <div id="sentence-gap-section" class="sentence-gap" hidden>
+              <div class="sentence-gap__heading">
+                <p class="dialog__label">Vervollständige den spanischen Satz</p>
+                <button id="reset-sentence-gap" class="sentence-gap__reset" type="button">Zurücksetzen</button>
+              </div>
+              <div
+                id="sentence-gap-sentence"
+                class="sentence-gap__sentence"
+                aria-label="Spanischer Lückentext"
+                aria-live="polite"
+              ></div>
+              <div id="sentence-gap-bank-wrap" class="sentence-gap__bank-wrap" hidden>
+                <p class="sentence-gap__zone-label">Wortbank</p>
+                <div
+                  id="sentence-gap-bank"
+                  class="sentence-gap__bank"
+                  aria-label="Verfügbare Wörter"
+                ></div>
+              </div>
+            </div>
+
             <div class="dialog__actions">
               <button id="submit-answer" type="button">Antwort senden</button>
               <button id="help-button" type="button">Hilfe</button>
@@ -221,6 +462,27 @@
         </aside>
       </section>
     </div>
+
+    <div id="vocabulary-overlay" class="vocabulary-overlay" hidden>
+      <section class="vocabulary-journal" role="dialog" aria-modal="true" aria-labelledby="vocabulary-journal-title">
+        <div class="vocabulary-journal__header">
+          <div>
+            <p class="vocabulary-journal__eyebrow">Dein Wortschatz</p>
+            <h1 id="vocabulary-journal-title">Meine Vokabeln</h1>
+          </div>
+          <button
+            id="close-vocabulary-x"
+            class="icon-button"
+            type="button"
+            aria-label="Vokabelheft schlie&szlig;en"
+          >x</button>
+        </div>
+        <p id="vocabulary-journal-count" class="vocabulary-journal__count">0 Vokabeln gesammelt</p>
+        <ul id="vocabulary-journal-list" class="vocabulary-journal__list"></ul>
+        <button id="close-vocabulary" class="pixel-button pixel-button--primary" type="button">Schlie&szlig;en</button>
+      </section>
+    </div>
+
     <div id="sidequest-overlay" class="sidequest-overlay" hidden>
       <section class="sidequest" role="dialog" aria-modal="true" aria-labelledby="sidequest-title">
         <div class="sidequest__header">
@@ -234,10 +496,34 @@
       </section>
     </div>
 
+    <audio
+      id="audio-click"
+      src="/assets/sounds/spanish_street_quest_classic_button_click (1).mp3"
+      preload="auto"
+    ></audio>
+    <audio
+      id="audio-main-menu"
+      src="/assets/sounds/spanish_street_quest_main_menu_latino.mp3"
+      preload="auto"
+      loop
+    ></audio>
+    <audio
+      id="audio-gameplay"
+      src="/assets/sounds/spanish_street_quest_gameplay_loop_latino.mp3"
+      preload="auto"
+      loop
+    ></audio>
+    <audio
+      id="audio-level-complete"
+      src="/assets/sounds/spanish_street_quest_level_complete.mp3"
+      preload="auto"
+    ></audio>
+
     <script src="quests.js"></script>
     <script src="sidequests.js"></script>
     <script src="buildingAssets.js"></script>
     <script src="characterAssets.js"></script>
+    <script src="levelCatalog.js"></script>
     <script src="aiClient.js"></script>
     <script src="game.js"></script>
   </body>
